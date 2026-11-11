@@ -89,6 +89,46 @@ export function Studio() {
   const [canShare, setCanShare] = useState(false);
   const [mounted, setMounted] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const previewRef = useRef<HTMLElement>(null);
+  const detailsRef = useRef<HTMLElement>(null);
+  const [previewInView, setPreviewInView] = useState(true);
+  const [typing, setTyping] = useState(false);
+
+  // Phone bottom bar: shown while the full card is off screen, hidden while the keyboard is up.
+  useEffect(() => {
+    const el = previewRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setPreviewInView(!!e && e.intersectionRatio > 0.35), { threshold: [0, 0.35, 0.6] });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  useEffect(() => {
+    const isField = (t: EventTarget | null) => t instanceof HTMLElement && t.matches("input:not([type=checkbox]):not([type=color]):not([type=file]), textarea");
+    const on = (e: FocusEvent) => { if (isField(e.target)) setTyping(true); };
+    const off = (e: FocusEvent) => { if (isField(e.target) && !isField(e.relatedTarget)) setTyping(false); };
+    document.addEventListener("focusin", on);
+    document.addEventListener("focusout", off);
+    return () => { document.removeEventListener("focusin", on); document.removeEventListener("focusout", off); };
+  }, []);
+  // The keyboard's return key says "Next" and moves on; on the last field it says "Done" and shows the code.
+  useEffect(() => {
+    const fields = [...(detailsRef.current?.querySelectorAll<HTMLElement>("input.field") ?? [])];
+    fields.forEach((el, i) => el.setAttribute("enterkeyhint", i === fields.length - 1 ? "done" : "next"));
+  }, [mode, f.sec]);
+
+  const showPreview = () => {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    previewRef.current?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  };
+  function onDetailsKey(e: React.KeyboardEvent) {
+    const t = e.target as HTMLElement;
+    if (e.key !== "Enter" || t.tagName !== "INPUT" || !t.classList.contains("field")) return;
+    e.preventDefault();
+    const fields = [...(detailsRef.current?.querySelectorAll<HTMLElement>("input.field") ?? [])];
+    const next = fields[fields.indexOf(t) + 1];
+    if (next) next.focus();
+    else showPreview();
+  }
 
   useEffect(() => {
     setRecent(readRecent());
@@ -130,6 +170,12 @@ export function Studio() {
       return { svg: "", error: "That's too long to fit in a QR code. Try something shorter." };
     }
   }, [value, fg, bg, dots, logo, cardText]);
+
+  const thumb = useMemo(() => {
+    if (!value) return "";
+    try { return renderSvg(value, { fg, bg, dots, logo }, null); } catch { return ""; }
+  }, [value, fg, bg, dots, logo]);
+  const barShown = !!rendered.svg && !previewInView && !typing;
 
   const colourWarning = colourCheck(fg, bg);
   const set = (k: string, val: string) => setF(prev => ({ ...prev, [k]: val }));
@@ -221,7 +267,7 @@ export function Studio() {
     <>
       <div className="studio">
         {/* ---------- What goes in the code ---------- */}
-        <section className="a-details rounded-3xl border border-line bg-card p-4 sm:p-6" aria-labelledby="details-h">
+        <section ref={detailsRef} onKeyDown={onDetailsKey} className="a-details rounded-3xl border border-line bg-card p-4 sm:p-6" aria-labelledby="details-h">
           <h2 id="details-h" className="sr-only">What the QR code does</h2>
           <div role="tablist" aria-label="QR type" className="grid grid-cols-3 gap-1 rounded-2xl bg-soft p-1 sm:grid-cols-6">
             {MODES.map(m => (
@@ -312,7 +358,7 @@ export function Studio() {
         </section>
 
         {/* ---------- The code and what to do with it ---------- */}
-        <section className="a-preview rounded-3xl border border-line bg-card p-4 sm:p-5" aria-labelledby="preview-h">
+        <section ref={previewRef} id="code" className="a-preview scroll-mt-3 rounded-3xl border border-line bg-card p-4 sm:p-5" aria-labelledby="preview-h">
           <h2 id="preview-h" className="sr-only">Your QR code</h2>
           <div className="mx-auto max-w-[340px]">
             {rendered.svg ? (
@@ -455,7 +501,24 @@ export function Studio() {
         </section>
       )}
 
-      <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 flex justify-center px-4">
+      {/* Phone: the code and Share stay one thumb-tap away while filling the form or styling. */}
+      <div inert={!barShown} aria-hidden={!barShown} data-shown={barShown}
+        className="bar fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card/95 px-4 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] backdrop-blur-md min-[860px]:hidden">
+        <div className="mx-auto flex max-w-5xl items-center gap-3">
+          <button onClick={showPreview} aria-label="Show the full QR code" className="press size-12 shrink-0 overflow-hidden rounded-lg border border-line bg-white [&_svg]:size-full"
+            dangerouslySetInnerHTML={{ __html: thumb }} />
+          <button onClick={showPreview} className="min-w-0 flex-1 text-left">
+            <span className="block truncate text-sm font-semibold">{summary(mode, f).main || "Your QR code"}</span>
+            <span className="block text-xs text-muted">Ready · tap to see it</span>
+          </button>
+          <button onClick={() => run(canShare ? "share" : "png")} disabled={busy}
+            className="press min-h-12 shrink-0 rounded-2xl bg-accent px-5 text-[15px] font-semibold text-accent-fg disabled:opacity-40">
+            {canShare ? "Share" : "Save"}
+          </button>
+        </div>
+      </div>
+
+      <div aria-live="polite" className={`pointer-events-none fixed inset-x-0 z-40 flex justify-center px-4 transition-[bottom] ${barShown ? "bottom-[calc(5.5rem+env(safe-area-inset-bottom))]" : "bottom-[max(1rem,env(safe-area-inset-bottom))]"}`}>
         {toast && <p className="rounded-full bg-fg px-4 py-2 text-sm font-medium text-bg shadow-lg">{toast}</p>}
       </div>
 

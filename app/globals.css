@@ -60,6 +60,13 @@
 }
 
 html { -webkit-tap-highlight-color: transparent; }
+/* Taps fire at once (no double-tap-zoom wait) and a long press on a control doesn't select its text. */
+button, a, label, summary, [role="tab"], [role="radio"] { touch-action: manipulation; }
+button, [role="tab"], [role="radio"], summary { -webkit-user-select: none; user-select: none; }
+
+/* Phone bottom bar: slides up from below; instant when motion is reduced. */
+.bar { transform: translateY(110%); transition: transform 0.28s cubic-bezier(0.23, 1, 0.32, 1); }
+.bar[data-shown="true"] { transform: none; }
 body { background: var(--bg); color: var(--fg); }
 ::selection { background: var(--accent-soft); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }

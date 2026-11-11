@@ -211,6 +211,50 @@ const logoPath = join(dir, "logo.png");
   await ctx.close();
 }
 
+// ---------- Phone flow: return key, bottom bar ----------
+{
+  const page = await phone(390);
+  const bar = () => page.$eval(".bar", e => e.getAttribute("data-shown") === "true" && !e.hasAttribute("inert"));
+  ok("bar hidden before there's a code", !(await bar()));
+  await page.focus("#f-id");
+  await page.keyboard.type("asha.rao@okicici");
+  ok("return key says Next on the first field", (await page.$eval("#f-id", e => e.getAttribute("enterkeyhint"))) === "next");
+  await page.keyboard.press("Enter");
+  ok("return key moves to the next field", (await page.evaluate(() => document.activeElement?.id)) === "f-name");
+  ok("bar hidden while typing", !(await bar()));
+  await page.keyboard.type("Asha Tea Stall");
+  await page.keyboard.press("Enter"); await page.keyboard.press("Enter"); // amount → note
+  ok("last field says Done", (await page.$eval("#f-note", e => e.getAttribute("enterkeyhint"))) === "done");
+  await page.keyboard.press("Enter");
+  await wait(900);
+  ok("Done on the last field shows the code", await page.$eval("#code", e => { const r = e.getBoundingClientRect(); return r.top < innerHeight * 0.5 && r.bottom > 0; }));
+  ok("bar hidden while the code is on screen", !(await bar()));
+  await page.evaluate(() => scrollTo({ top: 0, behavior: "instant" }));
+  await wait(500);
+  ok("bar appears when the code scrolls away", await bar());
+  ok("bar names the code", (await page.$eval(".bar", e => e.textContent ?? "")).includes("Asha Tea Stall"));
+  const tap = await page.$eval(".bar button[aria-label]", e => { const r = e.getBoundingClientRect(); return r.width >= 44 && r.height >= 44; });
+  ok("bar buttons are at least 44 px", tap);
+  await page.click('.bar button[aria-label="Show the full QR code"]');
+  await wait(900);
+  ok("thumbnail jumps to the code", !(await bar()));
+  await page.evaluate(() => scrollTo({ top: document.body.scrollHeight, behavior: "instant" }));
+  await wait(500);
+  const covered = await page.evaluate(() => {
+    const link = [...document.querySelectorAll("footer a")].pop()!.getBoundingClientRect();
+    return link.bottom <= document.querySelector(".bar")!.getBoundingClientRect().top;
+  });
+  ok("bar never covers the footer", covered);
+}
+{
+  const ctx = await browser.createBrowserContext();
+  const page = await ctx.newPage();
+  await page.setViewport({ width: 1280, height: 860 });
+  await page.goto(BASE, { waitUntil: "networkidle2" });
+  ok("desktop: no bottom bar", (await page.$eval(".bar", e => getComputedStyle(e).display)) === "none");
+  await ctx.close();
+}
+
 // ---------- Desktop layout + dark mode ----------
 {
   const ctx = await browser.createBrowserContext();

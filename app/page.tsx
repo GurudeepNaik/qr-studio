@@ -16,16 +16,17 @@ export default function Home() {
       </header>
 
       <main className="mx-auto max-w-5xl px-4 pb-16">
-        <div className="pt-3 pb-5 sm:pt-6 sm:pb-7">
-          <h1 className="text-[26px] leading-tight font-bold tracking-tight text-balance sm:text-4xl">Get paid or get found with one scan</h1>
+        <div className="pt-1 pb-4 sm:pt-6 sm:pb-7">
+          <h1 className="text-[24px] leading-tight font-bold tracking-tight text-balance sm:text-4xl">Get paid or get found with one scan</h1>
           <p className="mt-2 max-w-xl text-[15px] text-muted sm:text-base">
-            QR codes for UPI payments, directions to your shop, WhatsApp, calls, Wi-Fi or any link. Share them on WhatsApp or print them for your counter. Free, no sign-up, and nothing leaves your phone.
+            <span className="sm:hidden">Free, no sign-up, nothing leaves your phone.</span>
+            <span className="hidden sm:inline">QR codes for UPI payments, directions to your shop, WhatsApp, calls, Wi-Fi or any link. Share them on WhatsApp or print them for your counter. Free, no sign-up, and nothing leaves your phone.</span>
           </p>
         </div>
         <Studio />
       </main>
 
-      <footer className="mx-auto max-w-5xl px-4 pb-[max(2rem,env(safe-area-inset-bottom))] text-sm text-muted">
+      <footer className="mx-auto max-w-5xl px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] text-sm text-muted min-[860px]:pb-8">
         <div className="border-t border-line pt-5">
           <p>Works with every UPI app: Google Pay, PhonePe, Paytm, BHIM and your bank&rsquo;s app. Money goes straight to your bank; this site never sees it.</p>
           <p className="mt-2">
