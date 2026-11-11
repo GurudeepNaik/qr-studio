@@ -12,3 +12,23 @@ assert.equal((P.checkLink("  https://wa.me/919876543210  ") as { value: string }
 for (const bad of ["", "javascript:alert(1)", "ftp://x.com", "hello", "not a link .com"]) assert.equal(P.checkLink(bad).ok, false, `rejects link "${bad}"`);
 assert.equal(P.rupees("1250"), "₹1,250");
 console.log("PAYLOAD OK");
+
+// Phones, WhatsApp, Call
+assert.equal((P.checkWhatsApp("98765 43210", "Hi, is the shop open?") as { value: string }).value, "https://wa.me/919876543210?text=Hi%2C%20is%20the%20shop%20open%3F");
+assert.equal((P.checkWhatsApp("+91 98765-43210", "") as { value: string }).value, "https://wa.me/919876543210");
+assert.equal((P.checkWhatsApp("+44 7700 900123", "") as { value: string }).value, "https://wa.me/447700900123");
+assert.equal(P.checkWhatsApp("4412345678", "").ok, false, "WhatsApp needs a mobile");
+assert.equal((P.checkCall("044 1234 5678") as { value: string }).value, "tel:+914412345678", "landline with leading 0");
+for (const bad of ["", "12345", "+1234567890123456"]) assert.equal(P.checkCall(bad).ok, false, `rejects phone "${bad}"`);
+assert.equal(P.prettyPhone("919876543210"), "+91 98765 43210");
+// Directions
+assert.equal((P.checkMap("Asha Tea Stall, MG Road, Bhatkal") as { value: string }).value, "https://www.google.com/maps/dir/?api=1&destination=Asha%20Tea%20Stall%2C%20MG%20Road%2C%20Bhatkal");
+assert.equal((P.checkMap("13.9853, 74.5553") as { value: string }).value, "https://www.google.com/maps/dir/?api=1&destination=13.9853%2C74.5553");
+assert.equal((P.checkMap("https://maps.app.goo.gl/AbC123") as { value: string }).value, "https://maps.app.goo.gl/AbC123");
+for (const bad of ["", "https://evil.example/maps", "95.1, 10"]) assert.equal(P.checkMap(bad).ok, false, `rejects place "${bad}"`);
+// Wi-Fi
+assert.equal((P.checkWifi("Asha Cafe", "chai;1234", "WPA") as { value: string }).value, "WIFI:T:WPA;S:Asha Cafe;P:chai\\;1234;;");
+assert.equal((P.checkWifi("Guest", "", "nopass") as { value: string }).value, "WIFI:T:nopass;S:Guest;;");
+assert.equal(P.checkWifi("Guest", "short", "WPA").ok, false, "WPA needs 8+ characters");
+assert.equal(P.checkWifi("", "password1", "WPA").ok, false, "needs a name");
+console.log("MORE TYPES OK");

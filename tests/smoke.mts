@@ -75,12 +75,12 @@ const logoPath = join(dir, "logo.png");
 // ---------- UPI: every style ----------
 {
   const page = await phone();
-  ok("UPI tab is the default", (await page.$eval('[role=tab][aria-selected=true]', e => e.textContent)) === "UPI payment");
+  ok("UPI tab is the default", (await page.$eval('[role=tab][aria-selected=true]', e => e.textContent)) === "UPI pay");
   ok("empty state invites typing", (await page.$eval(".a-preview", e => e.textContent)).includes("Type your UPI ID"));
-  await type(page, "#upi-id", "asha.rao@okicici");
-  await type(page, "#upi-name", "Asha Tea Stall");
-  await type(page, "#upi-amount", "250");
-  await type(page, "#upi-note", "Tea & snacks");
+  await type(page, "#f-id", "asha.rao@okicici");
+  await type(page, "#f-name", "Asha Tea Stall");
+  await type(page, "#f-amount", "250");
+  await type(page, "#f-note", "Tea & snacks");
   const expected = "upi://pay?pa=asha.rao%40okicici&pn=Asha%20Tea%20Stall&am=250.00&cu=INR&tn=Tea%20%26%20snacks";
   ok("card shows name, ID and ₹250", /Asha Tea Stall[\s\S]*asha\.rao@okicici[\s\S]*₹250/.test(await page.$eval(".qr-preview", e => e.textContent ?? "")));
   const palettes = ["Classic", "Indigo", "Green", "Maroon", "Teal", "Charcoal"];
@@ -94,8 +94,8 @@ const logoPath = join(dir, "logo.png");
     for (const dots of ["square", "rounded", "dots"]) {
       await clickText(page, dots);
       for (const card of [true, false]) for (const palette of palettes) {
-        const isOn = await page.$eval('input[type=checkbox]', e => (e as HTMLInputElement).checked);
-        if (isOn !== card) await page.click('input[type=checkbox]');
+        const isOn = await page.$eval('#card-toggle', e => (e as HTMLInputElement).checked);
+        if (isOn !== card) await page.click('#card-toggle');
         await page.click(`button[aria-label="${palette}"]`);
         const reads = await readAll(page);
         ok(`UPI scans: ${dots}, ${palette}, ${card ? "card" : "plain"}${logo ? ", logo" : ""} (screen/1200/260: ${reads.map(r => (r === expected ? "✓" : r === null ? "unread" : "WRONG")).join(" ")})`, reads.every(r => r === expected));
@@ -116,14 +116,14 @@ const logoPath = join(dir, "logo.png");
 // ---------- Validation ----------
 {
   const page = await phone(320);
-  await type(page, "#upi-id", "not-an-id");
-  await page.click("#upi-name");
+  await type(page, "#f-id", "not-an-id");
+  await page.click("#f-name");
   await wait(150);
   ok("bad UPI ID: error after leaving the field", (await page.$eval(".a-details", e => e.textContent)).includes("doesn't look like a UPI ID"));
   ok("bad UPI ID: no code drawn", !(await page.$(".qr-preview")));
-  await type(page, "#upi-id", "9876543210@ybl");
-  await type(page, "#upi-amount", "500000");
-  await page.click("#upi-name");
+  await type(page, "#f-id", "9876543210@ybl");
+  await type(page, "#f-amount", "500000");
+  await page.click("#f-name");
   await wait(150);
   ok("amount over ₹1 lakh is refused", (await page.$eval(".a-details", e => e.textContent)).includes("up to ₹1,00,000"));
   ok("fits a 320 px phone", (await page.evaluate(() => document.documentElement.scrollWidth)) <= 320);
@@ -132,15 +132,15 @@ const logoPath = join(dir, "logo.png");
 // ---------- Link mode, recent list ----------
 {
   const page = await phone();
-  await clickText(page, "Website link");
-  await type(page, "#link", "example.com/menu?table=4");
+  await clickText(page, "Website");
+  await type(page, "#f-url", "example.com/menu?table=4");
   const reads = await readAll(page);
   ok(`link scans and gets https:// (${reads.join(" | ").slice(0, 80)})`, reads.every(r => r === "https://example.com/menu?table=4"));
-  await type(page, "#link", "javascript:alert(1)");
+  await type(page, "#f-url", "javascript:alert(1)");
   await page.click("body");
   await wait(150);
   ok("javascript: links are refused", !(await page.$(".qr-preview")));
-  await type(page, "#link", "https://wa.me/919876543210");
+  await type(page, "#f-url", "https://wa.me/919876543210");
   const cdp = await page.createCDPSession();
   await cdp.send("Page.setDownloadBehavior", { behavior: "allow", downloadPath: dir });
   await clickText(page, "SVG");
@@ -151,6 +151,48 @@ const logoPath = join(dir, "logo.png");
   await page.reload({ waitUntil: "networkidle2" });
   await wait(300);
   ok("recent list remembers the code after reload", (await page.$eval("#recent-h", e => e.parentElement!.parentElement!.textContent ?? "").catch(() => "")).includes("wa.me"));
+}
+
+// ---------- Directions, WhatsApp, Call, Wi-Fi ----------
+{
+  const page = await phone();
+  const tab = (label: string) => page.evaluate((t: string) => [...document.querySelectorAll<HTMLElement>("[role=tab]")].find(e => e.textContent?.trim() === t)!.click(), label);
+  const cases: [string, () => Promise<void>, string][] = [
+    ["Directions", async () => { await type(page, "#f-place", "Asha Tea Stall, MG Road, Bhatkal"); }, "https://www.google.com/maps/dir/?api=1&destination=Asha%20Tea%20Stall%2C%20MG%20Road%2C%20Bhatkal"],
+    ["WhatsApp", async () => { await type(page, "#f-phone", "98765 43210"); await type(page, "#f-text", "Hi, I'd like to order"); }, "https://wa.me/919876543210?text=Hi%2C%20I'd%20like%20to%20order"],
+    ["Call", async () => { await type(page, "#f-phone", "044 1234 5678"); }, "tel:+914412345678"],
+    ["Wi-Fi", async () => { await type(page, "#f-ssid", "Asha Cafe"); await type(page, "#f-pass", "chai;1234"); }, "WIFI:T:WPA;S:Asha Cafe;P:chai\\;1234;;"],
+  ];
+  for (const [label, fill, expected] of cases) {
+    await tab(label);
+    await fill();
+    for (const dots of ["square", "dots"]) {
+      await clickText(page, dots);
+      const reads = await readAll(page);
+      ok(`${label} scans (${dots}): ${reads.map(r => (r === expected ? "✓" : r === null ? "unread" : `WRONG ${r}`)).join(" ")}`, reads.every(r => r === expected));
+    }
+  }
+  await tab("Wi-Fi");
+  ok("Wi-Fi card shows the password", (await page.$eval(".qr-preview", e => e.textContent ?? "")).includes("Password: chai;1234"));
+  await type(page, "#f-pass", "short");
+  await page.click("#f-ssid");
+  await wait(150);
+  ok("Wi-Fi: short password explained", (await page.$eval(".a-details", e => e.textContent)).includes("8 to 63"));
+  ok("fits a 375 px phone with every type", (await page.evaluate(() => document.documentElement.scrollWidth)) <= 375);
+}
+{
+  // "Use my location" with a fixed position (Bhatkal).
+  const ctx = await browser.createBrowserContext();
+  await ctx.overridePermissions(BASE, ["geolocation"]);
+  const page = await ctx.newPage();
+  await page.setViewport({ width: 375, height: 860, isMobile: true, hasTouch: true });
+  await page.setGeolocation({ latitude: 13.985312, longitude: 74.555301 });
+  await page.goto(BASE, { waitUntil: "networkidle2" });
+  await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[role=tab]")].find(e => e.textContent?.trim() === "Directions")!.click());
+  await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("button")].find(e => e.textContent?.includes("use my location"))!.click());
+  await page.waitForFunction(() => (document.querySelector("#f-place") as HTMLInputElement).value !== "", { timeout: 8000 }).catch(() => undefined);
+  ok("use my location fills the coordinates", (await page.$eval("#f-place", e => (e as HTMLInputElement).value)) === "13.985312, 74.555301");
+  await ctx.close();
 }
 
 // ---------- Desktop layout + dark mode ----------

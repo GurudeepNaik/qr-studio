@@ -2,13 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { checkLink, checkUpi, rupees, type UpiInput } from "@/lib/payload";
+import { build, cardLines, DEFAULT_TITLE, FIELDS, fileBase, MODES, summary, type Fields, type Mode } from "@/lib/modes";
+import { rupees } from "@/lib/payload";
 import { colourCheck, renderSvg, svgToPng, type CardText, type DotStyle } from "@/lib/qr";
 
-type Mode = "upi" | "link";
-interface Saved { mode: Mode; upi: UpiInput; link: string; fg: string; bg: string; dots: DotStyle; card: boolean; title: string; at: number }
+interface Saved { mode: Mode; f: Fields; fg: string; bg: string; dots: DotStyle; card: boolean; title: string; at: number }
 
-const RECENT_KEY = "qr.recent.v1";
+const RECENT_KEY = "qr.recent.v2";
 const HEX = /^#[0-9a-f]{6}$/i;
 const PALETTES = [
   { name: "Classic", fg: "#111111", bg: "#ffffff" },
@@ -18,14 +18,24 @@ const PALETTES = [
   { name: "Teal", fg: "#0b4f5c", bg: "#eefaf9" },
   { name: "Charcoal", fg: "#2b2b2b", bg: "#fff6d6" },
 ];
-const EMPTY_UPI: UpiInput = { id: "", name: "", amount: "", note: "" };
-const defaultTitle = (m: Mode) => (m === "upi" ? "Scan to pay" : "Scan me");
+const MODE_KEYS = MODES.map(m => m.key) as string[];
+
+const ICONS: Record<Mode, React.ReactNode> = {
+  upi: <><path d="M7 5h10M7 9h10M7 5c5 0 5 8 0 8l7 6" /></>,
+  link: <><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></>,
+  map: <><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z" /><circle cx="12" cy="10" r="2.3" /></>,
+  wa: <><path d="M4 20l1.3-4A8 8 0 1 1 8 18.8z" /><path d="M9 9.5c.3 2.2 2.3 4.2 4.5 4.5l1-1.2 2 .8" /></>,
+  call: <><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2" /></>,
+  wifi: <><path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.8 16a5 5 0 0 1 6.4 0" /><circle cx="12" cy="19.3" r=".9" fill="currentColor" /></>,
+};
 
 function readRecent(): Saved[] {
   try {
     const raw = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]") as Saved[];
     // Stored on this device only, but still treat it as untrusted input before it reaches the SVG.
-    return Array.isArray(raw) ? raw.filter(r => r && (r.mode === "upi" || r.mode === "link") && HEX.test(r.fg) && HEX.test(r.bg) && ["square", "rounded", "dots"].includes(r.dots)).slice(0, 6) : [];
+    return Array.isArray(raw)
+      ? raw.filter(r => r && MODE_KEYS.includes(r.mode) && r.f && typeof r.f === "object" && HEX.test(r.fg) && HEX.test(r.bg) && ["square", "rounded", "dots"].includes(r.dots)).slice(0, 6)
+      : [];
   } catch {
     return [];
   }
@@ -63,8 +73,7 @@ function download(blob: Blob, name: string) {
 
 export function Studio() {
   const [mode, setMode] = useState<Mode>("upi");
-  const [upi, setUpi] = useState<UpiInput>(EMPTY_UPI);
-  const [link, setLink] = useState("");
+  const [f, setF] = useState<Fields>({ sec: "WPA" });
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [fg, setFg] = useState(PALETTES[0]!.fg);
   const [bg, setBg] = useState(PALETTES[0]!.bg);
@@ -72,10 +81,11 @@ export function Studio() {
   const [logo, setLogo] = useState<string | null>(null);
   const [logoError, setLogoError] = useState("");
   const [card, setCard] = useState(true);
-  const [title, setTitle] = useState<string | null>(null); // null = the default for the mode
+  const [titles, setTitles] = useState<Partial<Record<Mode, string>>>({}); // missing = the default for the mode
   const [recent, setRecent] = useState<Saved[]>([]);
   const [toast, setToast] = useState("");
   const [busy, setBusy] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [canShare, setCanShare] = useState(false);
   const [mounted, setMounted] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -95,44 +105,43 @@ export function Studio() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const check = mode === "upi" ? checkUpi(upi) : checkLink(link);
-  const cardTitle = (title ?? defaultTitle(mode)).slice(0, 28);
+  const check = build(mode, f);
+  const value = check.ok ? check.value : "";
+  const cardTitle = (titles[mode] ?? DEFAULT_TITLE[mode]).slice(0, 28);
 
-  const cardText: CardText | null = useMemo(() => {
-    if (!card || !check.ok) return null;
-    if (mode === "upi") {
-      const lines = [upi.name.trim() || upi.id.trim(), ...(upi.name.trim() ? [upi.id.trim()] : []), ...(rupees(upi.amount) ? [rupees(upi.amount)] : [])];
-      return { title: cardTitle, lines, footer: "Pay with any UPI app" };
-    }
-    const u = new URL(check.value);
-    const shown = (u.hostname.replace(/^www\./, "") + (u.pathname === "/" ? "" : u.pathname)).slice(0, 34);
-    return { title: cardTitle, lines: [shown], footer: "" };
-  }, [card, check.ok, check.ok ? check.value : "", mode, upi, cardTitle]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cardText: CardText | null = useMemo(
+    () => (card && value ? { title: cardTitle, ...cardLines(mode, f, value) } : null),
+    [card, value, mode, f, cardTitle],
+  );
 
-  const style = { fg, bg, dots, logo };
   const rendered = useMemo(() => {
-    if (!check.ok) return { svg: "", error: "" };
+    if (!value) return { svg: "", error: "" };
     try {
-      return { svg: renderSvg(check.value, style, cardText), error: "" };
+      return { svg: renderSvg(value, { fg, bg, dots, logo }, cardText), error: "" };
     } catch {
-      return { svg: "", error: "That's too long to fit in a QR code. Try a shorter link." };
+      return { svg: "", error: "That's too long to fit in a QR code. Try something shorter." };
     }
-  }, [check.ok, check.ok ? check.value : "", fg, bg, dots, logo, cardText]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [value, fg, bg, dots, logo, cardText]);
 
   const colourWarning = colourCheck(fg, bg);
-  const fileBase = mode === "upi" ? `upi-qr-${upi.id.split("@")[0] || "code"}` : "link-qr";
+  const set = (k: string, val: string) => setF(prev => ({ ...prev, [k]: val }));
+  const touch = (k: string) => setTouched(t => ({ ...t, [k]: true }));
+  const errorFor = (k: string) => (!check.ok && check.field === k && touched[k] ? check.error : "");
 
   function remember() {
-    const item: Saved = { mode, upi, link, fg, bg, dots, card, title: cardTitle, at: Date.now() };
-    const key = (s: Saved) => (s.mode === "upi" ? `u:${s.upi.id}:${s.upi.amount}:${s.upi.note}` : `l:${s.link}`);
+    const own = Object.fromEntries(FIELDS[mode].map(k => [k, f[k] ?? ""]));
+    const item: Saved = { mode, f: own, fg, bg, dots, card, title: cardTitle, at: Date.now() };
+    const key = (s: Saved) => `${s.mode}:${JSON.stringify(s.f)}`;
     const next = [item, ...recent.filter(r => key(r) !== key(item))].slice(0, 6);
     setRecent(next);
     try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch { /* private mode: fine */ }
   }
 
   function restore(s: Saved) {
-    setMode(s.mode); setUpi(s.upi); setLink(s.link); setFg(s.fg); setBg(s.bg); setDots(s.dots); setCard(s.card);
-    setTitle(s.title === defaultTitle(s.mode) ? null : s.title);
+    setMode(s.mode);
+    setF(prev => ({ ...prev, ...Object.fromEntries(Object.entries(s.f).map(([k, x]) => [k, String(x ?? "")])) }));
+    setFg(s.fg); setBg(s.bg); setDots(s.dots); setCard(s.card);
+    setTitles(t => ({ ...t, [s.mode]: s.title === DEFAULT_TITLE[s.mode] ? undefined : String(s.title).slice(0, 28) }));
     setTouched({});
     setToast("Loaded");
   }
@@ -140,30 +149,32 @@ export function Studio() {
   async function run(action: "png" | "svg" | "share" | "print") {
     if (!rendered.svg || busy) return;
     setBusy(true);
+    const name = fileBase(mode, f);
     try {
       if (action === "svg") {
-        download(new Blob([rendered.svg], { type: "image/svg+xml" }), `${fileBase}.svg`);
+        download(new Blob([rendered.svg], { type: "image/svg+xml" }), `${name}.svg`);
         setToast("SVG saved");
       } else if (action === "print") {
         window.print();
       } else {
         const png = await svgToPng(rendered.svg, 1200);
         if (action === "share" && canShare) {
-          const file = new File([png], `${fileBase}.png`, { type: "image/png" });
+          const file = new File([png], `${name}.png`, { type: "image/png" });
+          const text = { upi: "Scan to pay me with any UPI app", map: "Scan for directions", wifi: "Scan to join our Wi-Fi" }[mode as string];
           try {
-            await navigator.share({ files: [file], title: "QR code", text: mode === "upi" ? "Scan to pay me with any UPI app" : undefined });
+            await navigator.share({ files: [file], title: "QR code", text });
           } catch (e) {
             if ((e as Error).name !== "AbortError") throw e;
             return; // closed the share sheet: nothing to remember
           }
         } else {
-          download(png, `${fileBase}.png`);
+          download(png, `${name}.png`);
           setToast("Image saved");
         }
       }
       remember();
     } catch {
-      setToast("Something went wrong. Try Download instead.");
+      setToast("Something went wrong. Try Save instead.");
     } finally {
       setBusy(false);
     }
@@ -176,58 +187,120 @@ export function Studio() {
     if (fileRef.current) fileRef.current.value = "";
   }
 
-  const err = (k: string, msg: string | false) => (touched[k] && msg ? msg : "");
-  const upiError = !check.ok && mode === "upi" ? check.error : "";
-  const idError = err("id", upiError.includes("UPI ID") && upiError);
-  const amountError = err("amount", (upiError.includes("₹") || upiError.includes("decimal")) && upiError);
-  const linkError = err("link", mode === "link" && !check.ok && check.error);
-  const touch = (k: string) => setTouched(t => ({ ...t, [k]: true }));
+  function locate() {
+    if (!navigator.geolocation) { setToast("This browser can't share your location."); return; }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      p => { set("place", `${p.coords.latitude.toFixed(6)}, ${p.coords.longitude.toFixed(6)}`); setLocating(false); },
+      e => { setLocating(false); setToast(e.code === e.PERMISSION_DENIED ? "Location is blocked. Allow it in the browser, or type the address." : "Couldn't find your location. Type the address instead."); },
+      { enableHighAccuracy: true, timeout: 15000 },
+    );
+  }
+
+  /** A text field bound to f[k], with its error shown once the person has left it. */
+  const input = (k: string, props: React.InputHTMLAttributes<HTMLInputElement> & { mono?: boolean }) => {
+    const { mono, ...rest } = props;
+    return (
+      <input id={`f-${k}`} className={`field ${mono ? "font-mono" : ""}`} value={f[k] ?? ""} aria-invalid={!!errorFor(k)} autoComplete="off"
+        onBlur={() => touch(k)} onChange={e => set(k, e.target.value)} {...rest} />
+    );
+  };
+
+  const testLink = value && mode !== "wifi" ? value : "";
+  const testLabel = { upi: "Test it: open in my UPI app", link: "Test it: open the link", map: "Test it: open the directions", wa: "Test it: open the chat", call: "Test it: call the number", wifi: "" }[mode];
 
   return (
     <>
       <div className="studio">
         {/* ---------- What goes in the code ---------- */}
         <section className="a-details rounded-3xl border border-line bg-card p-4 sm:p-6" aria-labelledby="details-h">
-          <h2 id="details-h" className="sr-only">What the QR code opens</h2>
-          <div role="tablist" aria-label="QR type" className="grid grid-cols-2 gap-1 rounded-2xl bg-soft p-1">
-            {(["upi", "link"] as const).map(m => (
-              <button key={m} role="tab" aria-selected={mode === m} onClick={() => { setMode(m); setTouched({}); }}
-                className={`press min-h-11 rounded-xl text-[15px] font-semibold ${mode === m ? "bg-card text-fg shadow-sm" : "text-muted"}`}>
-                {m === "upi" ? "UPI payment" : "Website link"}
+          <h2 id="details-h" className="sr-only">What the QR code does</h2>
+          <div role="tablist" aria-label="QR type" className="grid grid-cols-3 gap-1 rounded-2xl bg-soft p-1 sm:grid-cols-6">
+            {MODES.map(m => (
+              <button key={m.key} role="tab" aria-selected={mode === m.key} onClick={() => { setMode(m.key); setTouched({}); }}
+                className={`press flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[13px] font-semibold ${mode === m.key ? "bg-card text-fg shadow-sm" : "text-muted"}`}>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+                  className={mode === m.key ? "text-accent" : ""}>{ICONS[m.key]}</svg>
+                {m.label}
               </button>
             ))}
           </div>
 
-          {mode === "upi" ? (
-            <div className="mt-5 grid gap-4">
-              <Field label="UPI ID" hint="Find it in your UPI app under your profile, e.g. 9876543210@ybl" error={idError} htmlFor="upi-id">
-                <input id="upi-id" className="field font-mono" value={upi.id} placeholder="yourname@okbank" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
-                  inputMode="email" aria-invalid={!!idError} onBlur={() => touch("id")} onChange={e => setUpi({ ...upi, id: e.target.value.replace(/\s+/g, "") })} />
-              </Field>
-              <Field label="Name shown to the payer" optional htmlFor="upi-name">
-                <input id="upi-name" className="field" value={upi.name} maxLength={50} placeholder="Asha Tea Stall" autoComplete="name" onChange={e => setUpi({ ...upi, name: e.target.value })} />
-              </Field>
-              <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2">
-                <Field label="Fixed amount" optional hint="Leave empty to let the payer type it" error={amountError} htmlFor="upi-amount">
-                  <div className="relative">
-                    <span className="pointer-events-none absolute inset-y-0 left-3.5 flex items-center text-muted">₹</span>
-                    <input id="upi-amount" className="field pl-8 tabular-nums" value={upi.amount} placeholder="0" inputMode="decimal" autoComplete="off" aria-invalid={!!amountError}
-                      onBlur={() => touch("amount")} onChange={e => setUpi({ ...upi, amount: e.target.value.replace(/[^\d.]/g, "") })} />
-                  </div>
+          <div className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-4">
+            {mode === "upi" && (
+              <>
+                <Field label="UPI ID" hint="Find it in your UPI app under your profile, e.g. 9876543210@ybl" error={errorFor("id")} k="id">
+                  {input("id", { mono: true, placeholder: "yourname@okbank", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, inputMode: "email",
+                    onChange: e => set("id", e.target.value.replace(/\s+/g, "")) })}
                 </Field>
-                <Field label="Note" optional hint="Shows in the payer's app, e.g. Invoice 42" htmlFor="upi-note">
-                  <input id="upi-note" className="field" value={upi.note} maxLength={50} placeholder="For tea" onChange={e => setUpi({ ...upi, note: e.target.value })} />
-                </Field>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-5 grid gap-4">
-              <Field label="Link" hint="A website, Google review page, menu, Instagram, WhatsApp chat (wa.me/91…) or form" error={linkError} htmlFor="link">
-                <input id="link" className="field" value={link} placeholder="example.com/menu" inputMode="url" autoComplete="url" autoCapitalize="none" autoCorrect="off" spellCheck={false}
-                  aria-invalid={!!linkError} onBlur={() => touch("link")} onChange={e => setLink(e.target.value)} />
+                <Field label="Name shown to the payer" optional k="name">{input("name", { maxLength: 50, placeholder: "Asha Tea Stall", autoComplete: "name" })}</Field>
+                <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2">
+                  <Field label="Fixed amount" optional hint="Leave empty to let the payer type it" error={errorFor("amount")} k="amount">
+                    <div className="relative">
+                      <span className="pointer-events-none absolute inset-y-0 left-3.5 flex items-center text-muted">₹</span>
+                      {input("amount", { className: "field pl-8 tabular-nums", placeholder: "0", inputMode: "decimal", onChange: e => set("amount", e.target.value.replace(/[^\d.]/g, "")) })}
+                    </div>
+                  </Field>
+                  <Field label="Note" optional hint="Shows in the payer's app, e.g. Invoice 42" k="note">{input("note", { maxLength: 50, placeholder: "For tea" })}</Field>
+                </div>
+              </>
+            )}
+
+            {mode === "link" && (
+              <Field label="Link" hint="A website, Google review page, menu, Instagram, YouTube or form" error={errorFor("url")} k="url">
+                {input("url", { placeholder: "example.com/menu", inputMode: "url", autoCapitalize: "none", autoCorrect: "off", spellCheck: false })}
               </Field>
-            </div>
-          )}
+            )}
+
+            {mode === "map" && (
+              <>
+                <Field label="Where to" hint="An address, a place name, or a link from Share in Google Maps" error={errorFor("place")} k="place">
+                  {input("place", { placeholder: "Asha Tea Stall, MG Road, Bhatkal", autoCapitalize: "words" })}
+                </Field>
+                <button onClick={locate} disabled={locating} className="press -mt-1 flex min-h-11 items-center justify-center gap-2 rounded-xl border border-line text-sm font-medium disabled:opacity-50">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><circle cx="12" cy="12" r="3.5" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
+                  {locating ? "Finding you…" : "I'm there now: use my location"}
+                </button>
+                <Field label="Name on the card" optional hint="e.g. your shop's name; the address is used if empty" k="label">{input("label", { maxLength: 34, placeholder: "Asha Tea Stall" })}</Field>
+              </>
+            )}
+
+            {(mode === "wa" || mode === "call") && (
+              <Field label={mode === "wa" ? "WhatsApp number" : "Phone number"} hint="10-digit Indian number, or + and the country code" error={errorFor("phone")} k="phone">
+                {input("phone", { placeholder: "98765 43210", inputMode: "tel", autoComplete: "tel" })}
+              </Field>
+            )}
+            {mode === "wa" && (
+              <Field label="Ready-made message" optional hint="The customer can edit it before sending" k="text">
+                <textarea id="f-text" className="field min-h-24 resize-y" maxLength={300} value={f.text ?? ""} placeholder="Hi, I'd like to place an order" onChange={e => set("text", e.target.value)} />
+              </Field>
+            )}
+
+            {mode === "wifi" && (
+              <>
+                <Field label="Wi-Fi name" hint="Exactly as phones show it, capitals included" error={errorFor("ssid")} k="ssid">
+                  {input("ssid", { placeholder: "Asha Cafe Guest", autoCapitalize: "none", autoCorrect: "off", spellCheck: false })}
+                </Field>
+                <div role="radiogroup" aria-label="Wi-Fi security" className="grid grid-cols-3 gap-2">
+                  {([["WPA", "Password"], ["nopass", "No password"], ["WEP", "WEP (old)"]] as const).map(([k, label]) => (
+                    <button key={k} role="radio" aria-checked={(f.sec || "WPA") === k} onClick={() => set("sec", k)}
+                      className={`press min-h-11 rounded-xl border text-sm font-medium ${(f.sec || "WPA") === k ? "border-accent bg-accent-soft text-fg" : "border-line text-muted"}`}>{label}</button>
+                  ))}
+                </div>
+                {f.sec !== "nopass" && (
+                  <>
+                    <Field label="Password" error={errorFor("pass")} k="pass">
+                      {input("pass", { placeholder: "8 or more characters", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, mono: true })}
+                    </Field>
+                    <label className="-mt-1 flex min-h-11 cursor-pointer items-center justify-between gap-3 text-sm">
+                      <span>Print the password on the card too</span>
+                      <input type="checkbox" checked={f.showPass !== "0"} onChange={e => set("showPass", e.target.checked ? "1" : "0")} className="size-5 accent-[var(--accent)]" />
+                    </label>
+                  </>
+                )}
+              </>
+            )}
+          </div>
         </section>
 
         {/* ---------- The code and what to do with it ---------- */}
@@ -236,11 +309,18 @@ export function Studio() {
           <div className="mx-auto max-w-[340px]">
             {rendered.svg ? (
               <div key={rendered.svg.length + fg + dots} className="qr-preview qr-pop" role="img"
-                aria-label={mode === "upi" ? `QR code to pay ${upi.name || upi.id}${rupees(upi.amount) ? ` ${rupees(upi.amount)}` : ""}` : `QR code for ${check.ok ? check.value : "your link"}`}
+                aria-label={mode === "upi" ? `QR code to pay ${f.name || f.id}${rupees(f.amount ?? "") ? ` ${rupees(f.amount ?? "")}` : ""}` : `QR code: ${MODES.find(m => m.key === mode)!.label}`}
                 dangerouslySetInnerHTML={{ __html: rendered.svg }} />
             ) : (
               <div className="grid aspect-square place-items-center rounded-2xl border-2 border-dashed border-line p-6 text-center text-[15px] text-muted">
-                {rendered.error || (mode === "upi" ? "Type your UPI ID and your QR code appears here." : "Paste a link and your QR code appears here.")}
+                {rendered.error || {
+                  upi: "Type your UPI ID and your QR code appears here.",
+                  link: "Paste a link and your QR code appears here.",
+                  map: "Type an address or use your location, and your QR code appears here.",
+                  wa: "Type your WhatsApp number and your QR code appears here.",
+                  call: "Type your phone number and your QR code appears here.",
+                  wifi: "Type your Wi-Fi name and password, and your QR code appears here.",
+                }[mode]}
               </div>
             )}
           </div>
@@ -259,16 +339,17 @@ export function Studio() {
               <Action onClick={() => run("print")} disabled={!rendered.svg || busy}>Print</Action>
               <Action onClick={() => run("svg")} disabled={!rendered.svg || busy} title="Sharp at any size, for print shops">SVG</Action>
             </div>
-            {mode === "upi" && check.ok && (
-              <a href={check.value} className="press col-span-2 flex min-h-11 items-center justify-center rounded-2xl text-sm font-medium text-accent md:hidden">
-                Test it: open in my UPI app
+            {testLink && (
+              <a href={testLink} target={testLink.startsWith("http") ? "_blank" : undefined} rel="noopener noreferrer"
+                className={`press col-span-2 flex min-h-11 items-center justify-center rounded-2xl text-sm font-medium text-accent ${mode === "upi" || mode === "call" ? "md:hidden" : ""}`}>
+                {testLabel}
               </a>
             )}
           </div>
-          {check.ok && (
+          {value && (
             <details className="mt-3 text-sm text-muted">
               <summary className="cursor-pointer select-none py-1">What the code contains</summary>
-              <p className="mt-1 break-all rounded-xl bg-soft p-3 font-mono text-xs">{check.value}</p>
+              <p className="mt-1 break-all rounded-xl bg-soft p-3 font-mono text-xs">{value}</p>
             </details>
           )}
         </section>
@@ -330,10 +411,10 @@ export function Studio() {
           <div className="mt-5">
             <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
               <span className="text-sm font-medium">Card with heading and details</span>
-              <input type="checkbox" checked={card} onChange={e => setCard(e.target.checked)} className="size-5 accent-[var(--accent)]" />
+              <input id="card-toggle" type="checkbox" checked={card} onChange={e => setCard(e.target.checked)} className="size-5 accent-[var(--accent)]" />
             </label>
             {card && (
-              <input aria-label="Card heading" className="field mt-1" value={cardTitle} maxLength={28} onChange={e => setTitle(e.target.value)} placeholder={defaultTitle(mode)} />
+              <input aria-label="Card heading" className="field mt-1" value={cardTitle} maxLength={28} onChange={e => setTitles(t => ({ ...t, [mode]: e.target.value }))} placeholder={DEFAULT_TITLE[mode]} />
             )}
           </div>
         </section>
@@ -346,17 +427,22 @@ export function Studio() {
             <button className="press min-h-10 px-2 text-sm text-muted" onClick={() => { setRecent([]); try { localStorage.removeItem(RECENT_KEY); } catch { /* fine */ } }}>Clear</button>
           </div>
           <ul className="mt-2 grid grid-cols-[minmax(0,1fr)] gap-2 sm:grid-cols-2">
-            {recent.map(r => (
-              <li key={r.at}>
-                <button onClick={() => restore(r)} className="press flex min-h-14 w-full items-center gap-3 rounded-2xl border border-line bg-card px-3 text-left">
-                  <span className="grid size-9 shrink-0 place-items-center rounded-lg text-xs font-bold" style={{ background: r.bg, color: r.fg, boxShadow: "inset 0 0 0 1px rgba(0,0,0,.08)" }}>{r.mode === "upi" ? "₹" : "↗"}</span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">{r.mode === "upi" ? r.upi.name || r.upi.id : r.link}</span>
-                    <span className="block truncate text-xs text-muted">{r.mode === "upi" ? [r.upi.id, rupees(r.upi.amount)].filter(Boolean).join(" · ") : "Link"}</span>
-                  </span>
-                </button>
-              </li>
-            ))}
+            {recent.map(r => {
+              const s = summary(r.mode, r.f);
+              return (
+                <li key={r.at}>
+                  <button onClick={() => restore(r)} className="press flex min-h-14 w-full items-center gap-3 rounded-2xl border border-line bg-card px-3 text-left">
+                    <span className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ background: r.bg, color: r.fg, boxShadow: "inset 0 0 0 1px rgba(0,0,0,.08)" }}>
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{ICONS[r.mode]}</svg>
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium">{s.main}</span>
+                      <span className="block truncate text-xs text-muted">{s.sub}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}
@@ -373,10 +459,10 @@ export function Studio() {
   );
 }
 
-function Field({ label, hint, error, optional, htmlFor, children }: { label: string; hint?: string; error?: string; optional?: boolean; htmlFor: string; children: React.ReactNode }) {
+function Field({ label, hint, error, optional, k, children }: { label: string; hint?: string; error?: string; optional?: boolean; k: string; children: React.ReactNode }) {
   return (
     <div>
-      <label htmlFor={htmlFor} className="mb-1.5 block text-sm font-medium">
+      <label htmlFor={`f-${k}`} className="mb-1.5 block text-sm font-medium">
         {label} {optional && <span className="font-normal text-muted">(optional)</span>}
       </label>
       {children}

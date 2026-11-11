@@ -4,14 +4,14 @@ import { inter, mono } from "./fonts";
 import "./globals.css";
 
 const url = "https://gurudeep-qr.vercel.app";
-const description = "Turn a UPI ID or any link into a QR code in seconds. Add your name, amount and logo, then share it on WhatsApp or print it for your shop counter. Free, no sign-up, nothing leaves your phone.";
+const description = "Turn a UPI ID, shop location, WhatsApp number, Wi-Fi or any link into a QR code in seconds. Add your name, amount and logo, then share it on WhatsApp or print it for your shop counter. Free, no sign-up, nothing leaves your phone.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(url),
   title: { default: "QR Studio · UPI and link QR codes", template: "%s · QR Studio" },
   description,
   applicationName: "QR Studio",
-  keywords: ["UPI QR code", "UPI QR generator", "QR code generator", "payment QR", "shop QR", "free QR code", "India"],
+  keywords: ["UPI QR code", "UPI QR generator", "Wi-Fi QR code", "WhatsApp QR code", "Google Maps QR code", "QR code generator", "payment QR", "shop QR", "free QR code", "India"],
   alternates: { canonical: "/" },
   openGraph: { type: "website", siteName: "QR Studio", title: "QR Studio · UPI and link QR codes", description, url },
   twitter: { card: "summary_large_image", title: "QR Studio · UPI and link QR codes", description },

@@ -19,7 +19,7 @@ export default function Home() {
         <div className="pt-3 pb-5 sm:pt-6 sm:pb-7">
           <h1 className="text-[26px] leading-tight font-bold tracking-tight text-balance sm:text-4xl">Get paid or get found with one scan</h1>
           <p className="mt-2 max-w-xl text-[15px] text-muted sm:text-base">
-            Make a QR code for your UPI ID or any link. Share it on WhatsApp or print it for your counter. Free, no sign-up, and nothing leaves your phone.
+            QR codes for UPI payments, directions to your shop, WhatsApp, calls, Wi-Fi or any link. Share them on WhatsApp or print them for your counter. Free, no sign-up, and nothing leaves your phone.
           </p>
         </div>
         <Studio />
