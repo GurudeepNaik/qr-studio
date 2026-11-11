@@ -6,6 +6,10 @@ import { build, cardLines, DEFAULT_TITLE, FIELDS, fileBase, fromShare, MODES, su
 import { rupees } from "@/lib/payload";
 import { colourCheck, renderSvg, svgToPng, type CardText, type DotStyle } from "@/lib/qr";
 
+/** Bottom-bar labels: short enough for six across a 320 px phone. */
+const SHORT: Record<Mode, string> = { upi: "UPI", link: "Link", map: "Map", wa: "WhatsApp", call: "Call", wifi: "Wi-Fi" };
+const HEADINGS: Record<Mode, string> = { upi: "UPI payment", link: "Website link", map: "Directions", wa: "WhatsApp chat", call: "Phone call", wifi: "Wi-Fi password" };
+
 interface Saved { mode: Mode; f: Fields; fg: string; bg: string; dots: DotStyle; card: boolean; title: string; at: number }
 
 const RECENT_KEY = "qr.recent.v2";
@@ -91,17 +95,9 @@ export function Studio() {
   const fileRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLElement>(null);
   const detailsRef = useRef<HTMLElement>(null);
-  const [previewInView, setPreviewInView] = useState(true);
   const [typing, setTyping] = useState(false);
 
-  // Phone bottom bar: shown while the full card is off screen, hidden while the keyboard is up.
-  useEffect(() => {
-    const el = previewRef.current;
-    if (!el || typeof IntersectionObserver === "undefined") return;
-    const io = new IntersectionObserver(([e]) => setPreviewInView(!!e && e.intersectionRatio > 0.35), { threshold: [0, 0.35, 0.6] });
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
+  // The phone's bottom type bar steps aside while the keyboard is up, so the field being typed in keeps the room.
   useEffect(() => {
     const isField = (t: EventTarget | null) => t instanceof HTMLElement && t.matches("input:not([type=checkbox]):not([type=color]):not([type=file]), textarea");
     const on = (e: FocusEvent) => { if (isField(e.target)) setTyping(true); };
@@ -171,11 +167,12 @@ export function Studio() {
     }
   }, [value, fg, bg, dots, logo, cardText]);
 
-  const thumb = useMemo(() => {
-    if (!value) return "";
-    try { return renderSvg(value, { fg, bg, dots, logo }, null); } catch { return ""; }
-  }, [value, fg, bg, dots, logo]);
-  const barShown = !!rendered.svg && !previewInView && !typing;
+  const ready = !!rendered.svg;
+  const pickMode = (m: Mode, fromBar = false) => {
+    setMode(m);
+    setTouched({});
+    if (fromBar) detailsRef.current?.scrollIntoView({ behavior: "instant", block: "start" });
+  };
 
   const colourWarning = colourCheck(fg, bg);
   const set = (k: string, val: string) => setF(prev => ({ ...prev, [k]: val }));
@@ -268,10 +265,15 @@ export function Studio() {
       <div className="studio">
         {/* ---------- What goes in the code ---------- */}
         <section ref={detailsRef} onKeyDown={onDetailsKey} className="a-details rounded-3xl border border-line bg-card p-4 sm:p-6" aria-labelledby="details-h">
-          <h2 id="details-h" className="sr-only">What the QR code does</h2>
-          <div role="tablist" aria-label="QR type" className="grid grid-cols-3 gap-1 rounded-2xl bg-soft p-1 sm:grid-cols-6">
+          <h2 id="details-h" className="flex items-center gap-2.5 text-[19px] font-bold min-[860px]:sr-only">
+            <span className="grid size-9 place-items-center rounded-xl bg-accent-soft text-accent">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{ICONS[mode]}</svg>
+            </span>
+            {HEADINGS[mode]}
+          </h2>
+          <div role="tablist" aria-label="QR type" className="grid grid-cols-6 gap-1 rounded-2xl bg-soft p-1 max-[859px]:hidden">
             {MODES.map(m => (
-              <button key={m.key} role="tab" aria-selected={mode === m.key} onClick={() => { setMode(m.key); setTouched({}); }}
+              <button key={m.key} role="tab" aria-selected={mode === m.key} onClick={() => pickMode(m.key)}
                 className={`press flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[13px] font-semibold ${mode === m.key ? "bg-card text-fg shadow-sm" : "text-muted"}`}>
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden
                   className={mode === m.key ? "text-accent" : ""}>{ICONS[m.key]}</svg>
@@ -280,7 +282,7 @@ export function Studio() {
             ))}
           </div>
 
-          <div className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-4">
+          <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-4 min-[860px]:mt-5">
             {mode === "upi" && (
               <>
                 <Field label="UPI ID" hint="Find it in your UPI app under your profile, e.g. 9876543210@ybl" error={errorFor("id")} k="id">
@@ -355,6 +357,11 @@ export function Studio() {
               </>
             )}
           </div>
+          <button onClick={showPreview} disabled={!ready}
+            className="press mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-accent text-[16px] font-semibold text-accent-fg disabled:bg-soft disabled:text-muted min-[860px]:hidden">
+            {ready ? "See my QR code" : "Fill in the details above"}
+            {ready && <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 5v14M6 13l6 6 6-6" /></svg>}
+          </button>
         </section>
 
         {/* ---------- The code and what to do with it ---------- */}
@@ -501,24 +508,22 @@ export function Studio() {
         </section>
       )}
 
-      {/* Phone: the code and Share stay one thumb-tap away while filling the form or styling. */}
-      <div inert={!barShown} aria-hidden={!barShown} data-shown={barShown}
-        className="bar fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card/95 px-4 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] backdrop-blur-md min-[860px]:hidden">
-        <div className="mx-auto flex max-w-5xl items-center gap-3">
-          <button onClick={showPreview} aria-label="Show the full QR code" className="press size-12 shrink-0 overflow-hidden rounded-lg border border-line bg-white [&_svg]:size-full"
-            dangerouslySetInnerHTML={{ __html: thumb }} />
-          <button onClick={showPreview} className="min-w-0 flex-1 text-left">
-            <span className="block truncate text-sm font-semibold">{summary(mode, f).main || "Your QR code"}</span>
-            <span className="block text-xs text-muted">Ready · tap to see it</span>
-          </button>
-          <button onClick={() => run(canShare ? "share" : "png")} disabled={busy}
-            className="press min-h-12 shrink-0 rounded-2xl bg-accent px-5 text-[15px] font-semibold text-accent-fg disabled:opacity-40">
-            {canShare ? "Share" : "Save"}
-          </button>
+      {/* Phone: the six code types live in a bar at the bottom, in thumb reach. Wide screens use the picker in the form. */}
+      <nav aria-label="QR type" data-hidden={typing}
+        className="typebar fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md min-[860px]:hidden">
+        <div className="mx-auto grid max-w-lg grid-cols-6">
+          {MODES.map(m => (
+            <button key={m.key} onClick={() => pickMode(m.key, true)} aria-current={mode === m.key ? "true" : undefined} aria-label={HEADINGS[m.key]}
+              className={`press relative flex min-h-[60px] min-w-0 flex-col items-center justify-center gap-1 text-[11px] font-semibold ${mode === m.key ? "text-accent" : "text-muted"}`}>
+              {mode === m.key && <span className="absolute inset-x-2.5 top-0 h-[3px] rounded-b-full bg-accent" aria-hidden />}
+              <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" strokeWidth={mode === m.key ? 2.1 : 1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>{ICONS[m.key]}</svg>
+              <span className="max-w-full truncate px-0.5 max-[359px]:px-0 max-[359px]:text-[10px] max-[359px]:tracking-tight">{SHORT[m.key]}</span>
+            </button>
+          ))}
         </div>
-      </div>
+      </nav>
 
-      <div aria-live="polite" className={`pointer-events-none fixed inset-x-0 z-40 flex justify-center px-4 transition-[bottom] ${barShown ? "bottom-[calc(5.5rem+env(safe-area-inset-bottom))]" : "bottom-[max(1rem,env(safe-area-inset-bottom))]"}`}>
+      <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-40 flex justify-center px-4 min-[860px]:bottom-6">
         {toast && <p className="rounded-full bg-fg px-4 py-2 text-sm font-medium text-bg shadow-lg">{toast}</p>}
       </div>
 

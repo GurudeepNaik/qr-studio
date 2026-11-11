@@ -211,47 +211,53 @@ const logoPath = join(dir, "logo.png");
   await ctx.close();
 }
 
-// ---------- Phone flow: return key, bottom bar ----------
+// ---------- Phone flow: bottom type bar, return key ----------
 {
+  for (const width of [320, 390]) {
+    const page = await phone(width);
+    const labels = await page.$$eval(".typebar button", bs => bs.map(b => { const r = b.getBoundingClientRect(); const l = b.querySelector("span:last-child") as HTMLElement; return { t: l.textContent, w: r.width, h: r.height, cut: l.scrollWidth > l.clientWidth }; }));
+    ok(`${width} px: bottom bar has the 6 types (${labels.map(l => l.t).join(", ")})`, labels.length === 6);
+    ok(`${width} px: bar buttons at least 44 px, no label cut off`, labels.every(l => l.w >= 44 && l.h >= 44 && !l.cut));
+    ok(`${width} px: desktop picker hidden`, (await page.$eval("[role=tablist]", e => getComputedStyle(e).display)) === "none");
+    await page.close();
+  }
   const page = await phone(390);
-  const bar = () => page.$eval(".bar", e => e.getAttribute("data-shown") === "true" && !e.hasAttribute("inert"));
-  ok("bar hidden before there's a code", !(await bar()));
+  const barUp = () => page.$eval(".typebar", e => e.getAttribute("data-hidden") !== "true");
+  await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".typebar button")].find(b => b.textContent?.includes("Map"))!.click());
+  await wait(200);
+  ok("bar switches the type (heading says Directions)", (await page.$eval("#details-h", e => e.textContent?.trim())) === "Directions");
+  ok("bar marks the current type", (await page.$eval('.typebar [aria-current="true"]', e => e.textContent?.trim())) === "Map");
+  await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".typebar button")].find(b => b.textContent?.includes("UPI"))!.click());
+  await wait(200);
+  ok("CTA waits for details", await page.evaluate(() => [...document.querySelectorAll<HTMLButtonElement>(".a-details button")].find(b => b.textContent?.includes("Fill in the details"))?.disabled === true));
   await page.focus("#f-id");
+  await wait(150);
+  ok("bar steps aside while typing", !(await barUp()));
   await page.keyboard.type("asha.rao@okicici");
   ok("return key says Next on the first field", (await page.$eval("#f-id", e => e.getAttribute("enterkeyhint"))) === "next");
   await page.keyboard.press("Enter");
   ok("return key moves to the next field", (await page.evaluate(() => document.activeElement?.id)) === "f-name");
-  ok("bar hidden while typing", !(await bar()));
   await page.keyboard.type("Asha Tea Stall");
-  await page.keyboard.press("Enter"); await page.keyboard.press("Enter"); // amount → note
+  await page.keyboard.press("Enter"); await page.keyboard.press("Enter");
   ok("last field says Done", (await page.$eval("#f-note", e => e.getAttribute("enterkeyhint"))) === "done");
   await page.keyboard.press("Enter");
   await wait(900);
-  ok("Done on the last field shows the code", await page.$eval("#code", e => { const r = e.getBoundingClientRect(); return r.top < innerHeight * 0.5 && r.bottom > 0; }));
-  ok("bar hidden while the code is on screen", !(await bar()));
+  ok("Done shows the code", await page.$eval("#code", e => { const r = e.getBoundingClientRect(); return r.top < innerHeight * 0.5 && r.bottom > 0; }));
+  ok("bar back after typing", await barUp());
   await page.evaluate(() => scrollTo({ top: 0, behavior: "instant" }));
-  await wait(500);
-  ok("bar appears when the code scrolls away", await bar());
-  ok("bar names the code", (await page.$eval(".bar", e => e.textContent ?? "")).includes("Asha Tea Stall"));
-  const tap = await page.$eval(".bar button[aria-label]", e => { const r = e.getBoundingClientRect(); return r.width >= 44 && r.height >= 44; });
-  ok("bar buttons are at least 44 px", tap);
-  await page.click('.bar button[aria-label="Show the full QR code"]');
+  await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".a-details button")].find(b => b.textContent?.includes("See my QR code"))!.click());
   await wait(900);
-  ok("thumbnail jumps to the code", !(await bar()));
+  ok("See my QR code scrolls to the code", await page.$eval("#code", e => { const r = e.getBoundingClientRect(); return r.top < innerHeight * 0.5 && r.bottom > 0; }));
   await page.evaluate(() => scrollTo({ top: document.body.scrollHeight, behavior: "instant" }));
-  await wait(500);
-  const covered = await page.evaluate(() => {
-    const link = [...document.querySelectorAll("footer a")].pop()!.getBoundingClientRect();
-    return link.bottom <= document.querySelector(".bar")!.getBoundingClientRect().top;
-  });
-  ok("bar never covers the footer", covered);
+  await wait(400);
+  ok("bar never covers the footer", await page.evaluate(() => [...document.querySelectorAll("footer a")].pop()!.getBoundingClientRect().bottom <= document.querySelector(".typebar")!.getBoundingClientRect().top));
 }
 {
   const ctx = await browser.createBrowserContext();
   const page = await ctx.newPage();
   await page.setViewport({ width: 1280, height: 860 });
   await page.goto(BASE, { waitUntil: "networkidle2" });
-  ok("desktop: no bottom bar", (await page.$eval(".bar", e => getComputedStyle(e).display)) === "none");
+  ok("desktop: no bottom bar, picker in the form", (await page.$eval(".typebar", e => getComputedStyle(e).display)) === "none" && (await page.$eval("[role=tablist]", e => getComputedStyle(e).display)) !== "none");
   await ctx.close();
 }
 

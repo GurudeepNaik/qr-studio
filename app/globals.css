@@ -64,9 +64,10 @@ html { -webkit-tap-highlight-color: transparent; }
 button, a, label, summary, [role="tab"], [role="radio"] { touch-action: manipulation; }
 button, [role="tab"], [role="radio"], summary { -webkit-user-select: none; user-select: none; }
 
-/* Phone bottom bar: slides up from below; instant when motion is reduced. */
-.bar { transform: translateY(110%); transition: transform 0.28s cubic-bezier(0.23, 1, 0.32, 1); }
-.bar[data-shown="true"] { transform: none; }
+/* Phone type bar: slides away while the keyboard is up. */
+.typebar { transition: transform 0.22s cubic-bezier(0.23, 1, 0.32, 1); }
+.typebar[data-hidden="true"] { transform: translateY(110%); }
+.a-details { scroll-margin-top: 0.75rem; }
 body { background: var(--bg); color: var(--fg); }
 ::selection { background: var(--accent-soft); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
