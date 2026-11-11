@@ -1,5 +1,6 @@
 import { Studio } from "@/components/Studio";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { InstallButton } from "@/components/InstallButton";
 
 export default function Home() {
   return (
@@ -12,7 +13,10 @@ export default function Home() {
           </svg>
           <span className="text-[17px] font-bold tracking-tight">QR Studio</span>
         </div>
-        <ThemeToggle />
+        <div className="flex items-center gap-2">
+          <InstallButton />
+          <ThemeToggle />
+        </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-4 pb-16">

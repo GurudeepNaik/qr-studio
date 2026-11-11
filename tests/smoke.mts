@@ -302,6 +302,30 @@ const logoPath = join(dir, "logo.png");
   }
 }
 
+// ---------- Installable, and works offline once opened ----------
+{
+  // Installing is never offered in private windows, so this check uses the browser's normal profile.
+  const normal = await browser.newPage();
+  await normal.goto(BASE, { waitUntil: "networkidle2" });
+  await normal.evaluate(() => navigator.serviceWorker.ready.then(() => true));
+  const { installabilityErrors } = await (await normal.createCDPSession()).send("Page.getInstallabilityErrors");
+  await normal.close();
+  const page = await wide();
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
+  ok(`Chrome says it can be installed${installabilityErrors.length ? ` (${installabilityErrors.map(e => e.errorId).join(", ")})` : ""}`, installabilityErrors.length === 0);
+  await page.reload({ waitUntil: "networkidle2" }); // now controlled by the service worker, which saves the page
+  await wait(800);
+  await page.setOfflineMode(true);
+  await page.reload({ waitUntil: "domcontentloaded" }).catch(() => undefined);
+  await wait(1500);
+  ok("opens with no internet", (await page.$eval("h1", e => e.textContent ?? "").catch(() => "")).includes("one scan"));
+  await clickText(page, "Website").catch(() => undefined);
+  await type(page, "#f-url", "example.com/offline").catch(() => undefined);
+  await wait(400);
+  ok("makes a code with no internet", !!(await page.$(".qr-preview svg")));
+  await page.setOfflineMode(false);
+}
+
 await browser.close();
 const failed = results.filter(r => !r.pass);
 for (const r of results) console.log(`${r.pass ? "PASS" : "FAIL"} ${r.name}`);

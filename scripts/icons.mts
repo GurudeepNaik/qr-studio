@@ -8,8 +8,9 @@ const p = await b.newPage();
 for (const s of [192, 512]) {
   await p.setViewport({ width: s, height: s });
   // Maskable icons need the art inside the middle 80%, so the 512 gets a full-bleed background.
-  await p.setContent(`<body style="margin:0;background:#1d5fd1">${s === 512 ? `<div style="padding:${s * 0.1}px">${svg.replace('rx="112"', 'rx="0"')}</div>` : svg}</body>`);
-  await p.addStyleTag({ content: "svg{width:100%;height:100%;display:block}" });
+  const inner = s === 512 ? Math.round(s * 0.8) : s;
+  const art = (s === 512 ? svg.replace('rx="112"', 'rx="0"') : svg).replace("<svg ", `<svg width="${inner}" height="${inner}" `);
+  await p.setContent(`<body style="margin:0;width:${s}px;height:${s}px;display:grid;place-items:center;background:#1d5fd1">${art}</body>`);
   writeFileSync(`${root}/public/icon-${s}.png`, await p.screenshot({ type: "png", omitBackground: false }));
 }
 await b.close();
