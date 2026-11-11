@@ -1,0 +1,14 @@
+import assert from "node:assert";
+const P = (await import("../lib/payload.ts")) as typeof import("../lib/payload");
+const up = (o: Partial<{ id: string; name: string; amount: string; note: string }>) => P.checkUpi({ id: "", name: "", amount: "", note: "", ...o });
+const r1 = up({ id: "asha.rao@okicici", name: "Asha Rao", amount: "250", note: "Tea stall" });
+assert.ok(r1.ok); assert.equal(r1.ok && r1.value, "upi://pay?pa=asha.rao%40okicici&pn=Asha%20Rao&am=250.00&cu=INR&tn=Tea%20stall");
+assert.equal((up({ id: "9876543210@ybl" }) as { value: string }).value, "upi://pay?pa=9876543210%40ybl&cu=INR", "no amount: payer types it");
+for (const bad of ["", "nobank", "a@", "@bank", "a b@ok", "x@1bank"]) assert.equal(up({ id: bad }).ok, false, `rejects UPI ID "${bad}"`);
+for (const bad of ["0", "-5", "abc", "100000.01", "12.345"]) assert.equal(up({ id: "a.b@ok", amount: bad }).ok, false, `rejects amount "${bad}"`);
+assert.ok(up({ id: "a.b@ok", amount: "100000" }).ok, "₹1 lakh is allowed");
+assert.equal((P.checkLink("example.com/menu") as { value: string }).value, "https://example.com/menu");
+assert.equal((P.checkLink("  https://wa.me/919876543210  ") as { value: string }).value, "https://wa.me/919876543210");
+for (const bad of ["", "javascript:alert(1)", "ftp://x.com", "hello", "not a link .com"]) assert.equal(P.checkLink(bad).ok, false, `rejects link "${bad}"`);
+assert.equal(P.rupees("1250"), "₹1,250");
+console.log("PAYLOAD OK");

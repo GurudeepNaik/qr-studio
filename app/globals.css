@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --bg: #f7f7f4;
+  --card: #ffffff;
+  --soft: #efefea;
+  --fg: #15171c;
+  --muted: #5b616e;
+  --line: #e2e2dc;
+  --accent: #1d5fd1;
+  --accent-soft: #e6eefc;
+  --accent-fg: #ffffff;
+  --warn: #9a4a00;
+  --warn-soft: #fff1e0;
+  --bad: #b42318;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg: #0d0f13;
+  --card: #161a21;
+  --soft: #1d222b;
+  --fg: #e9ebef;
+  --muted: #9aa1ad;
+  --line: #2a303b;
+  --accent: #7aa7ff;
+  --accent-soft: #18264a;
+  --accent-fg: #081022;
+  --warn: #ffb766;
+  --warn-soft: #33220f;
+  --bad: #ff8a80;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0f13; --card: #161a21; --soft: #1d222b; --fg: #e9ebef; --muted: #9aa1ad; --line: #2a303b;
+    --accent: #7aa7ff; --accent-soft: #18264a; --accent-fg: #081022; --warn: #ffb766; --warn-soft: #33220f; --bad: #ff8a80;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-card: var(--card);
+  --color-soft: var(--soft);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-jb), ui-monospace, SFMono-Regular, monospace;
+}
+
+html { -webkit-tap-highlight-color: transparent; }
+body { background: var(--bg); color: var(--fg); }
+::selection { background: var(--accent-soft); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+/* Phone: details, then the code, then styling. Wider screens: the code sits on the right and stays in view. */
+.studio { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); grid-template-areas: "details" "preview" "style"; }
+.studio > .a-details { grid-area: details; }
+.studio > .a-preview { grid-area: preview; }
+.studio > .a-style { grid-area: style; }
+@media (min-width: 860px) {
+  .studio { grid-template-columns: minmax(0, 1fr) 380px; grid-template-areas: "details preview" "style preview"; align-items: start; gap: 1.25rem 2rem; }
+  .studio > .a-preview { position: sticky; top: 1rem; }
+}
+
+.field {
+  width: 100%; min-height: 48px; border-radius: 12px; border: 1px solid var(--line); background: var(--card);
+  padding: 0.7rem 0.9rem; font-size: 16px; /* 16px stops iOS zooming into the field */ color: var(--fg);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.field::placeholder { color: color-mix(in oklab, var(--muted) 75%, transparent); }
+.field:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.field[aria-invalid="true"] { border-color: var(--bad); }
+
+.qr-preview svg { width: 100%; height: auto; display: block; }
+.qr-pop { animation: qr-pop 0.25s cubic-bezier(0.23, 1, 0.32, 1); }
+@keyframes qr-pop { from { opacity: 0.4; transform: scale(0.985); } to { opacity: 1; transform: none; } }
+
+.press { transition: transform 0.12s, background-color 0.15s, border-color 0.15s; }
+.press:active { transform: scale(0.97); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* Printing: only the card, centred, about 9 cm wide (fits a counter stand or half an A4 sheet). */
+#print-area { display: none; }
+@media print {
+  @page { margin: 12mm; }
+  body { background: #fff !important; }
+  body > *:not(#print-root) { display: none !important; }
+  #print-root, #print-area { display: block !important; }
+  #print-area { width: 90mm; margin: 0 auto; }
+  #print-area svg { width: 100%; height: auto; }
+}
