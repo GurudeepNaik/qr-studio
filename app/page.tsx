@@ -16,7 +16,7 @@ export default function Home() {
       </header>
 
       <main className="mx-auto max-w-5xl px-4 pb-16">
-        <div className="pt-1 pb-4 sm:pt-6 sm:pb-7">
+        <div className="hero pt-1 pb-4 sm:pt-6 sm:pb-7">
           <h1 className="text-[24px] leading-tight font-bold tracking-tight text-balance sm:text-4xl">Get paid or get found with one scan</h1>
           <p className="mt-2 max-w-xl text-[15px] text-muted sm:text-base">
             <span className="sm:hidden">Free, no sign-up, nothing leaves your phone.</span>

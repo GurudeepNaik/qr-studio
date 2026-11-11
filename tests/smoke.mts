@@ -16,10 +16,12 @@ const ok = (name: string, pass: unknown) => results.push({ pass: !!pass, name })
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: true });
 
-async function phone(width = 375): Promise<Page> {
+// Scan checks run on a wide screen, where the form, the code and the styling are all on screen at once.
+// Phones walk through steps (choose → fill in → done); the phone-flow section tests those.
+async function phone(width = 375, wide = false): Promise<Page> {
   const ctx = await browser.createBrowserContext();
   const page = await ctx.newPage();
-  await page.setViewport({ width, height: 860, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  await page.setViewport(wide ? { width, height: 900, deviceScaleFactor: 2 } : { width, height: 860, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   await page.evaluateOnNewDocument("globalThis.__name = f => f"); // tsx helper used inside page.evaluate
   page.on("pageerror", e => ok(`no page errors (${(e as Error).message.slice(0, 80)})`, false));
   await page.goto(BASE, { waitUntil: "networkidle2" });
@@ -32,6 +34,9 @@ async function type(page: Page, sel: string, text: string) {
   await page.keyboard.press("Backspace");
   if (text) await page.type(sel, text);
 }
+const wide = () => phone(1100, true);
+const pickCard = (page: Page, title: string) => page.evaluate((t: string) => [...document.querySelectorAll<HTMLElement>(".a-pick button")].find(b => b.textContent?.includes(t))!.click(), title);
+const moreUpi = (page: Page) => page.evaluate(() => [...document.querySelectorAll<HTMLElement>("button")].find(b => b.textContent?.trim() === "Add a fixed amount or note")?.click());
 const clickText = (page: Page, text: string) => page.evaluate((t: string) => {
   const b = [...document.querySelectorAll<HTMLElement>("button, label")].find(e => e.textContent?.trim().toLowerCase() === t.toLowerCase());
   if (!b) throw new Error(`no button "${t}"`);
@@ -74,11 +79,13 @@ const logoPath = join(dir, "logo.png");
 
 // ---------- UPI: every style ----------
 {
-  const page = await phone();
+  const page = await wide();
   ok("UPI tab is the default", (await page.$eval('[role=tab][aria-selected=true]', e => e.textContent)) === "UPI pay");
   ok("empty state invites typing", (await page.$eval(".a-preview", e => e.textContent)).includes("Type your UPI ID"));
   await type(page, "#f-id", "asha.rao@okicici");
   await type(page, "#f-name", "Asha Tea Stall");
+  ok("amount and note tucked away at first", !(await page.$("#f-amount")));
+  await moreUpi(page);
   await type(page, "#f-amount", "250");
   await type(page, "#f-note", "Tea & snacks");
   const expected = "upi://pay?pa=asha.rao%40okicici&pn=Asha%20Tea%20Stall&am=250.00&cu=INR&tn=Tea%20%26%20snacks";
@@ -110,18 +117,19 @@ const logoPath = join(dir, "logo.png");
   });
   await wait(200);
   ok("faint code colour shows a warning", (await page.$eval(".a-preview", e => e.textContent)).includes("too close"));
-  ok("fits a 375 px phone", (await page.evaluate(() => document.documentElement.scrollWidth)) <= 375);
 }
 
 // ---------- Validation ----------
 {
   const page = await phone(320);
+  await pickCard(page, "Get paid");
   await type(page, "#f-id", "not-an-id");
   await page.click("#f-name");
   await wait(150);
   ok("bad UPI ID: error after leaving the field", (await page.$eval(".a-details", e => e.textContent)).includes("doesn't look like a UPI ID"));
   ok("bad UPI ID: no code drawn", !(await page.$(".qr-preview")));
   await type(page, "#f-id", "9876543210@ybl");
+  await moreUpi(page);
   await type(page, "#f-amount", "500000");
   await page.click("#f-name");
   await wait(150);
@@ -131,7 +139,7 @@ const logoPath = join(dir, "logo.png");
 
 // ---------- Link mode, recent list ----------
 {
-  const page = await phone();
+  const page = await wide();
   await clickText(page, "Website");
   await type(page, "#f-url", "example.com/menu?table=4");
   const reads = await readAll(page);
@@ -143,7 +151,7 @@ const logoPath = join(dir, "logo.png");
   await type(page, "#f-url", "https://wa.me/919876543210");
   const cdp = await page.createCDPSession();
   await cdp.send("Page.setDownloadBehavior", { behavior: "allow", downloadPath: dir });
-  await clickText(page, "SVG");
+  await clickText(page, "Download a file for a print shop (SVG)");
   await wait(600);
   await wait(900);
   let svgFile = ""; try { svgFile = readFileSync(join(dir, "link-qr.svg"), "utf8"); } catch { /* not saved */ }
@@ -155,7 +163,7 @@ const logoPath = join(dir, "logo.png");
 
 // ---------- Directions, WhatsApp, Call, Wi-Fi ----------
 {
-  const page = await phone();
+  const page = await wide();
   const tab = (label: string) => page.evaluate((t: string) => [...document.querySelectorAll<HTMLElement>("[role=tab]")].find(e => e.textContent?.trim() === t)!.click(), label);
   const cases: [string, () => Promise<void>, string][] = [
     ["Directions", async () => { await type(page, "#f-place", "Asha Tea Stall, MG Road, Bhatkal"); }, "https://www.google.com/maps/dir/?api=1&destination=Asha%20Tea%20Stall%2C%20MG%20Road%2C%20Bhatkal"],
@@ -178,7 +186,6 @@ const logoPath = join(dir, "logo.png");
   await page.click("#f-ssid");
   await wait(150);
   ok("Wi-Fi: short password explained", (await page.$eval(".a-details", e => e.textContent)).includes("8 to 63"));
-  ok("fits a 375 px phone with every type", (await page.evaluate(() => document.documentElement.scrollWidth)) <= 375);
 }
 {
   // "Use my location" with a fixed position (Bhatkal).
@@ -203,6 +210,7 @@ const logoPath = join(dir, "logo.png");
   await page.evaluateOnNewDocument("globalThis.__name = f => f");
   await page.goto(`${BASE}/?title=${encodeURIComponent("Asha Tea Stall")}&text=${encodeURIComponent("https://maps.app.goo.gl/AbC123xyz")}`, { waitUntil: "networkidle2" });
   await page.addScriptTag({ content: JSQR });
+  ok("Maps share lands on the finished code (step 3)", (await page.$eval("#preview-h", e => e.textContent)) === "Your QR code is ready");
   ok("Maps share opens Directions", (await page.$eval("[role=tab][aria-selected=true]", e => e.textContent?.trim())) === "Directions");
   ok("Maps share: name on the card", (await page.$eval(".qr-preview", e => e.textContent ?? "").catch(() => "")).includes("Asha Tea Stall"));
   const reads = await readAll(page);
@@ -211,25 +219,31 @@ const logoPath = join(dir, "logo.png");
   await ctx.close();
 }
 
-// ---------- Phone flow: bottom type bar, return key ----------
+// ---------- Phone flow: choose → fill in → done ----------
 {
+  const shown = (page: Page, sel: string) => page.$eval(sel, e => getComputedStyle(e).display !== "none" && (e as HTMLElement).offsetParent !== null).catch(() => false);
+  const fits = (page: Page, w: number) => page.evaluate(() => document.documentElement.scrollWidth).then(x => x <= w);
   for (const width of [320, 390]) {
     const page = await phone(width);
+    const cards = await page.$$eval(".a-pick button", bs => bs.map(b => b.querySelector("span span")?.textContent));
+    ok(`${width} px step 1: six plain-words choices (${cards.join(", ")})`, cards.length === 6 && cards[0] === "Get paid");
+    ok(`${width} px step 1: no form, no bottom bar yet`, !(await shown(page, ".a-details")) && !(await shown(page, ".typebar")));
+    ok(`${width} px step 1: fits`, await fits(page, width));
+    await pickCard(page, "Show the way to you");
+    await wait(200);
+    ok(`${width} px step 2: Directions form, "Step 2 of 3", Back`, (await page.$eval("#details-h", e => e.textContent?.trim())) === "Directions" && (await page.$eval(".a-steps", e => e.textContent ?? "")).includes("Step 2 of 3"));
     const labels = await page.$$eval(".typebar button", bs => bs.map(b => { const r = b.getBoundingClientRect(); const l = b.querySelector("span:last-child") as HTMLElement; return { t: l.textContent, w: r.width, h: r.height, cut: l.scrollWidth > l.clientWidth }; }));
-    ok(`${width} px: bottom bar has the 6 types (${labels.map(l => l.t).join(", ")})`, labels.length === 6);
-    ok(`${width} px: bar buttons at least 44 px, no label cut off`, labels.every(l => l.w >= 44 && l.h >= 44 && !l.cut));
-    ok(`${width} px: desktop picker hidden`, (await page.$eval("[role=tablist]", e => getComputedStyle(e).display)) === "none");
+    ok(`${width} px step 2: bottom bar has the 6 types, 44 px+, none cut off (${labels.map(l => l.t).join(", ")})`, labels.length === 6 && labels.every(l => l.w >= 44 && l.h >= 44 && !l.cut));
+    ok(`${width} px step 2: fits`, await fits(page, width));
+    ok(`${width} px step 2: intro hidden, form starts near the top`, !(await shown(page, ".hero")) && (await page.$eval(".a-details", e => e.getBoundingClientRect().top)) < 160);
     await page.close();
   }
+
   const page = await phone(390);
   const barUp = () => page.$eval(".typebar", e => e.getAttribute("data-hidden") !== "true");
-  await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".typebar button")].find(b => b.textContent?.includes("Map"))!.click());
+  await pickCard(page, "Get paid");
   await wait(200);
-  ok("bar switches the type (heading says Directions)", (await page.$eval("#details-h", e => e.textContent?.trim())) === "Directions");
-  ok("bar marks the current type", (await page.$eval('.typebar [aria-current="true"]', e => e.textContent?.trim())) === "Map");
-  await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".typebar button")].find(b => b.textContent?.includes("UPI"))!.click());
-  await wait(200);
-  ok("CTA waits for details", await page.evaluate(() => [...document.querySelectorAll<HTMLButtonElement>(".a-details button")].find(b => b.textContent?.includes("Fill in the details"))?.disabled === true));
+  ok("button waits for details", await page.evaluate(() => [...document.querySelectorAll<HTMLButtonElement>(".a-details button")].find(b => b.textContent?.includes("Fill in the details"))?.disabled === true));
   await page.focus("#f-id");
   await wait(150);
   ok("bar steps aside while typing", !(await barUp()));
@@ -238,26 +252,36 @@ const logoPath = join(dir, "logo.png");
   await page.keyboard.press("Enter");
   ok("return key moves to the next field", (await page.evaluate(() => document.activeElement?.id)) === "f-name");
   await page.keyboard.type("Asha Tea Stall");
-  await page.keyboard.press("Enter"); await page.keyboard.press("Enter");
-  ok("last field says Done", (await page.$eval("#f-note", e => e.getAttribute("enterkeyhint"))) === "done");
+  ok("last shown field says Done", (await page.$eval("#f-name", e => e.getAttribute("enterkeyhint"))) === "done");
   await page.keyboard.press("Enter");
-  await wait(900);
-  ok("Done shows the code", await page.$eval("#code", e => { const r = e.getBoundingClientRect(); return r.top < innerHeight * 0.5 && r.bottom > 0; }));
-  ok("bar back after typing", await barUp());
-  await page.evaluate(() => scrollTo({ top: 0, behavior: "instant" }));
-  await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".a-details button")].find(b => b.textContent?.includes("See my QR code"))!.click());
-  await wait(900);
-  ok("See my QR code scrolls to the code", await page.$eval("#code", e => { const r = e.getBoundingClientRect(); return r.top < innerHeight * 0.5 && r.bottom > 0; }));
-  await page.evaluate(() => scrollTo({ top: document.body.scrollHeight, behavior: "instant" }));
   await wait(400);
+  ok("Done goes to step 3: code ready, form hidden", (await page.$eval("#preview-h", e => e.textContent)) === "Your QR code is ready" && !(await shown(page, ".a-details")) && (await shown(page, ".qr-preview")));
+  ok("step 3: Share is the first button", (await page.$eval(".a-preview button", e => e.textContent ?? "")).match(/Share|Download/) !== null);
+  ok("step 3: fits", await fits(page, 390));
+  ok("bar back after typing", await barUp());
+  await page.evaluate(() => scrollTo({ top: document.body.scrollHeight, behavior: "instant" }));
+  await wait(300);
   ok("bar never covers the footer", await page.evaluate(() => [...document.querySelectorAll("footer a")].pop()!.getBoundingClientRect().bottom <= document.querySelector(".typebar")!.getBoundingClientRect().top));
+  await page.click(".a-steps button");
+  await wait(200);
+  ok("Back from step 3 returns to the filled form", (await page.$eval("#f-id", e => (e as HTMLInputElement).value)) === "asha.rao@okicici" && (await shown(page, ".a-details")));
+  await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".a-details button")].find(b => b.textContent?.includes("Next: get my QR code"))!.click());
+  await wait(300);
+  await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".typebar button")].find(b => b.textContent?.includes("Wi-Fi"))!.click());
+  await wait(200);
+  ok("bar switches type and opens its form", (await page.$eval("#details-h", e => e.textContent?.trim())) === "Wi-Fi password" && (await shown(page, ".a-details")));
+  await page.click(".a-steps button");
+  await wait(200);
+  ok("Back from step 2 returns to the choices", await shown(page, ".a-pick"));
 }
 {
   const ctx = await browser.createBrowserContext();
   const page = await ctx.newPage();
   await page.setViewport({ width: 1280, height: 860 });
   await page.goto(BASE, { waitUntil: "networkidle2" });
-  ok("desktop: no bottom bar, picker in the form", (await page.$eval(".typebar", e => getComputedStyle(e).display)) === "none" && (await page.$eval("[role=tablist]", e => getComputedStyle(e).display)) !== "none");
+  const disp = (sel: string) => page.$eval(sel, e => getComputedStyle(e).display);
+  ok("desktop: everything at once (no steps, no bottom bar, picker in the form)",
+    (await disp(".typebar")) === "none" && (await disp(".a-pick")) === "none" && (await disp(".a-steps")) === "none" && (await disp("[role=tablist]")) !== "none" && (await disp(".a-preview")) !== "none");
   await ctx.close();
 }
 

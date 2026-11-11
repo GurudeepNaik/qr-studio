@@ -6,6 +6,16 @@ import { build, cardLines, DEFAULT_TITLE, FIELDS, fileBase, fromShare, MODES, su
 import { rupees } from "@/lib/payload";
 import { colourCheck, renderSvg, svgToPng, type CardText, type DotStyle } from "@/lib/qr";
 
+type Step = "pick" | "fill" | "done";
+/** Step 1 cards: what the person wants to happen, in their words. */
+const PICK: Record<Mode, { title: string; desc: string }> = {
+  upi: { title: "Get paid", desc: "Customers scan and pay you with any UPI app" },
+  link: { title: "Open a website", desc: "Menu, Instagram, Google review page, a form…" },
+  map: { title: "Show the way to you", desc: "Opens directions to your shop in Google Maps" },
+  wa: { title: "Start a WhatsApp chat", desc: "Customers message you without saving your number" },
+  call: { title: "Call you", desc: "Dials your number, no typing" },
+  wifi: { title: "Join your Wi-Fi", desc: "Guests connect without typing the password" },
+};
 /** Bottom-bar labels: short enough for six across a 320 px phone. */
 const SHORT: Record<Mode, string> = { upi: "UPI", link: "Link", map: "Map", wa: "WhatsApp", call: "Call", wifi: "Wi-Fi" };
 const HEADINGS: Record<Mode, string> = { upi: "UPI payment", link: "Website link", map: "Directions", wa: "WhatsApp chat", call: "Phone call", wifi: "Wi-Fi password" };
@@ -93,6 +103,7 @@ export function Studio() {
   const [canShare, setCanShare] = useState(false);
   const [mounted, setMounted] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [more, setMore] = useState(false); // UPI: amount and note stay tucked away until asked for
   const previewRef = useRef<HTMLElement>(null);
   const detailsRef = useRef<HTMLElement>(null);
   const [typing, setTyping] = useState(false);
@@ -110,11 +121,21 @@ export function Studio() {
   useEffect(() => {
     const fields = [...(detailsRef.current?.querySelectorAll<HTMLElement>("input.field") ?? [])];
     fields.forEach((el, i) => el.setAttribute("enterkeyhint", i === fields.length - 1 ? "done" : "next"));
-  }, [mode, f.sec]);
+  }, [mode, f.sec, more]);
 
-  const showPreview = () => {
+  // Phones walk through three steps (choose → fill in → done); wide screens show everything at once.
+  const [step, setStep] = useState<Step>("pick");
+  useEffect(() => { document.documentElement.dataset.step = step; }, [step]);
+  const isPhone = () => !matchMedia("(min-width: 860px)").matches;
+  const goStep = (next: Step) => {
     (document.activeElement as HTMLElement | null)?.blur?.();
-    previewRef.current?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+    setStep(next);
+    if (isPhone()) window.scrollTo({ top: 0, behavior: "instant" });
+  };
+  const showPreview = () => {
+    if (isPhone()) { goStep("done"); return; }
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    previewRef.current?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
   };
   function onDetailsKey(e: React.KeyboardEvent) {
     const t = e.target as HTMLElement;
@@ -135,6 +156,7 @@ export function Studio() {
     if (shared) {
       setMode(shared.mode);
       setF(prev => ({ ...prev, ...shared.f }));
+      setStep("done");
       history.replaceState(null, "", "/");
     }
     try {
@@ -168,10 +190,10 @@ export function Studio() {
   }, [value, fg, bg, dots, logo, cardText]);
 
   const ready = !!rendered.svg;
-  const pickMode = (m: Mode, fromBar = false) => {
+  const pickMode = (m: Mode) => {
     setMode(m);
     setTouched({});
-    if (fromBar) detailsRef.current?.scrollIntoView({ behavior: "instant", block: "start" });
+    goStep("fill");
   };
 
   const colourWarning = colourCheck(fg, bg);
@@ -194,6 +216,7 @@ export function Studio() {
     setFg(s.fg); setBg(s.bg); setDots(s.dots); setCard(s.card);
     setTitles(t => ({ ...t, [s.mode]: s.title === DEFAULT_TITLE[s.mode] ? undefined : String(s.title).slice(0, 28) }));
     setTouched({});
+    goStep("done");
     setToast("Loaded");
   }
 
@@ -262,6 +285,41 @@ export function Studio() {
 
   return (
     <>
+      {/* ---------- Phone step 1: what should the code do? ---------- */}
+      <section className="a-pick" aria-labelledby="pick-h">
+        <h2 id="pick-h" className="text-[19px] font-bold">What should happen when someone scans?</h2>
+        <ul className="mt-3 grid gap-2.5">
+          {MODES.map(m => (
+            <li key={m.key}>
+              <button onClick={() => pickMode(m.key)} className="press flex min-h-[72px] w-full items-center gap-3.5 rounded-2xl border border-line bg-card px-4 py-3 text-left">
+                <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent">
+                  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{ICONS[m.key]}</svg>
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[16px] font-semibold">{PICK[m.key].title}</span>
+                  <span className="block text-[13px] leading-snug text-muted">{PICK[m.key].desc}</span>
+                </span>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0 text-muted"><path d="M9 6l6 6-6 6" /></svg>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/* ---------- Phone: where am I, and back ---------- */}
+      <div className="a-steps mb-3 flex items-center justify-between gap-3">
+        <button onClick={() => goStep(step === "done" ? "fill" : "pick")} className="press -ml-2 flex min-h-11 items-center gap-1 rounded-xl px-2 text-[15px] font-medium text-accent">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 6l-6 6 6 6" /></svg>
+          Back
+        </button>
+        <p className="flex items-center gap-2 text-sm text-muted">
+          <span>Step {step === "done" ? 3 : 2} of 3</span>
+          <span className="flex gap-1" aria-hidden>
+            {[1, 2, 3].map(n => <span key={n} className={`h-1.5 rounded-full ${n <= (step === "done" ? 3 : 2) ? "w-5 bg-accent" : "w-1.5 bg-line"}`} />)}
+          </span>
+        </p>
+      </div>
+
       <div className="studio">
         {/* ---------- What goes in the code ---------- */}
         <section ref={detailsRef} onKeyDown={onDetailsKey} className="a-details rounded-3xl border border-line bg-card p-4 sm:p-6" aria-labelledby="details-h">
@@ -290,6 +348,12 @@ export function Studio() {
                     onChange: e => set("id", e.target.value.replace(/\s+/g, "")) })}
                 </Field>
                 <Field label="Name shown to the payer" optional k="name">{input("name", { maxLength: 50, placeholder: "Asha Tea Stall", autoComplete: "name" })}</Field>
+                {!(more || f.amount || f.note) ? (
+                  <button onClick={() => setMore(true)} className="press -mt-1 flex min-h-11 items-center gap-2 self-start rounded-xl text-[15px] font-medium text-accent">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
+                    Add a fixed amount or note
+                  </button>
+                ) : (
                 <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2">
                   <Field label="Fixed amount" optional hint="Leave empty to let the payer type it" error={errorFor("amount")} k="amount">
                     <div className="relative">
@@ -299,6 +363,7 @@ export function Studio() {
                   </Field>
                   <Field label="Note" optional hint="Shows in the payer's app, e.g. Invoice 42" k="note">{input("note", { maxLength: 50, placeholder: "For tea" })}</Field>
                 </div>
+                )}
               </>
             )}
 
@@ -359,14 +424,14 @@ export function Studio() {
           </div>
           <button onClick={showPreview} disabled={!ready}
             className="press mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-accent text-[16px] font-semibold text-accent-fg disabled:bg-soft disabled:text-muted min-[860px]:hidden">
-            {ready ? "See my QR code" : "Fill in the details above"}
-            {ready && <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 5v14M6 13l6 6 6-6" /></svg>}
+            {ready ? "Next: get my QR code" : "Fill in the details above"}
+            {ready && <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M5 12h14M13 6l6 6-6 6" /></svg>}
           </button>
         </section>
 
         {/* ---------- The code and what to do with it ---------- */}
         <section ref={previewRef} id="code" className="a-preview scroll-mt-3 rounded-3xl border border-line bg-card p-4 sm:p-5" aria-labelledby="preview-h">
-          <h2 id="preview-h" className="sr-only">Your QR code</h2>
+          <h2 id="preview-h" className="mb-3 text-center text-[19px] font-bold min-[860px]:sr-only">{ready ? "Your QR code is ready" : "Your QR code"}</h2>
           <div className="mx-auto max-w-[340px]">
             {rendered.svg ? (
               <div key={rendered.svg.length + fg + dots} className="qr-preview qr-pop" role="img"
@@ -398,8 +463,10 @@ export function Studio() {
             <div className="col-span-2 flex gap-2">
               {canShare && <Action onClick={() => run("png")} disabled={!rendered.svg || busy}>Save</Action>}
               <Action onClick={() => run("print")} disabled={!rendered.svg || busy}>Print</Action>
-              <Action onClick={() => run("svg")} disabled={!rendered.svg || busy} title="Sharp at any size, for print shops">SVG</Action>
             </div>
+            <button onClick={() => run("svg")} disabled={!rendered.svg || busy} className="press col-span-2 min-h-11 rounded-2xl text-sm text-muted underline underline-offset-2 disabled:opacity-40">
+              Download a file for a print shop (SVG)
+            </button>
             {testLink && (
               <a href={testLink} target={testLink.startsWith("http") ? "_blank" : undefined} rel="noopener noreferrer"
                 className={`press col-span-2 flex min-h-11 items-center justify-center rounded-2xl text-sm font-medium text-accent ${mode === "upi" || mode === "call" ? "md:hidden" : ""}`}>
@@ -409,7 +476,7 @@ export function Studio() {
           </div>
           {value && (
             <details className="mt-3 text-sm text-muted">
-              <summary className="cursor-pointer select-none py-1">What the code contains</summary>
+              <summary className="cursor-pointer select-none py-1">Check what&rsquo;s inside the code</summary>
               <p className="mt-1 break-all rounded-xl bg-soft p-3 font-mono text-xs">{value}</p>
             </details>
           )}
@@ -417,7 +484,7 @@ export function Studio() {
 
         {/* ---------- Look ---------- */}
         <section className="a-style rounded-3xl border border-line bg-card p-4 sm:p-6" aria-labelledby="style-h">
-          <h2 id="style-h" className="text-[17px] font-semibold">Make it yours</h2>
+          <h2 id="style-h" className="text-[17px] font-semibold">Change the look <span className="font-normal text-muted">(optional)</span></h2>
 
           <fieldset className="mt-4">
             <legend className="text-sm font-medium">Colours</legend>
@@ -471,18 +538,21 @@ export function Studio() {
 
           <div className="mt-5">
             <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
-              <span className="text-sm font-medium">Card with heading and details</span>
+              <span className="text-sm font-medium">Show a heading and details with the code</span>
               <input id="card-toggle" type="checkbox" checked={card} onChange={e => setCard(e.target.checked)} className="size-5 accent-[var(--accent)]" />
             </label>
             {card && (
               <input aria-label="Card heading" className="field mt-1" value={cardTitle} maxLength={28} onChange={e => setTitles(t => ({ ...t, [mode]: e.target.value }))} placeholder={DEFAULT_TITLE[mode]} />
             )}
           </div>
+          <button onClick={() => goStep("pick")} className="press mt-6 flex min-h-12 w-full items-center justify-center rounded-2xl border border-line text-[15px] font-semibold min-[860px]:hidden">
+            Make another QR code
+          </button>
         </section>
       </div>
 
       {mounted && recent.length > 0 && (
-        <section className="mt-6" aria-labelledby="recent-h">
+        <section className="a-recent mt-6" aria-labelledby="recent-h">
           <div className="flex items-baseline justify-between">
             <h2 id="recent-h" className="text-[15px] font-semibold">Recent <span className="font-normal text-muted">(on this phone only)</span></h2>
             <button className="press min-h-10 px-2 text-sm text-muted" onClick={() => { setRecent([]); try { localStorage.removeItem(RECENT_KEY); } catch { /* fine */ } }}>Clear</button>
@@ -513,7 +583,7 @@ export function Studio() {
         className="typebar fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md min-[860px]:hidden">
         <div className="mx-auto grid max-w-lg grid-cols-6">
           {MODES.map(m => (
-            <button key={m.key} onClick={() => pickMode(m.key, true)} aria-current={mode === m.key ? "true" : undefined} aria-label={HEADINGS[m.key]}
+            <button key={m.key} onClick={() => pickMode(m.key)} aria-current={mode === m.key ? "true" : undefined} aria-label={HEADINGS[m.key]}
               className={`press relative flex min-h-[60px] min-w-0 flex-col items-center justify-center gap-1 text-[11px] font-semibold ${mode === m.key ? "text-accent" : "text-muted"}`}>
               {mode === m.key && <span className="absolute inset-x-2.5 top-0 h-[3px] rounded-b-full bg-accent" aria-hidden />}
               <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" strokeWidth={mode === m.key ? 2.1 : 1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>{ICONS[m.key]}</svg>
