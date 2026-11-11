@@ -195,6 +195,22 @@ const logoPath = join(dir, "logo.png");
   await ctx.close();
 }
 
+{
+  // Arriving from Google Maps' Share button through the Android share sheet.
+  const ctx = await browser.createBrowserContext();
+  const page = await ctx.newPage();
+  await page.setViewport({ width: 375, height: 860, isMobile: true, hasTouch: true });
+  await page.evaluateOnNewDocument("globalThis.__name = f => f");
+  await page.goto(`${BASE}/?title=${encodeURIComponent("Asha Tea Stall")}&text=${encodeURIComponent("https://maps.app.goo.gl/AbC123xyz")}`, { waitUntil: "networkidle2" });
+  await page.addScriptTag({ content: JSQR });
+  ok("Maps share opens Directions", (await page.$eval("[role=tab][aria-selected=true]", e => e.textContent?.trim())) === "Directions");
+  ok("Maps share: name on the card", (await page.$eval(".qr-preview", e => e.textContent ?? "").catch(() => "")).includes("Asha Tea Stall"));
+  const reads = await readAll(page);
+  ok(`Maps share scans to the shared link (${reads.join(" | ").slice(0, 60)})`, reads.every(r => r === "https://maps.app.goo.gl/AbC123xyz"));
+  ok("share address cleaned from the URL bar", (await page.evaluate(() => location.search)) === "");
+  await ctx.close();
+}
+
 // ---------- Desktop layout + dark mode ----------
 {
   const ctx = await browser.createBrowserContext();

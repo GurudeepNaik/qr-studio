@@ -1,5 +1,5 @@
 // The six kinds of code: what each one's form fields turn into, and what its card says.
-import { checkCall, checkLink, checkMap, checkUpi, checkWhatsApp, checkWifi, isMapsLink, prettyPhone, rupees, type Check, type WifiSecurity } from "./payload";
+import { checkCall, checkLink, checkMap, checkUpi, checkWhatsApp, checkWifi, isMapsLink, prettyPhone, rupees, splitMapsShare, type Check, type WifiSecurity } from "./payload";
 
 export type Mode = "upi" | "link" | "map" | "wa" | "call" | "wifi";
 export type Fields = Record<string, string>;
@@ -52,7 +52,8 @@ export function cardLines(mode: Mode, f: Fields, value: string): { lines: string
       return { lines: [(u.hostname.replace(/^www\./, "") + (u.pathname === "/" ? "" : u.pathname)).slice(0, 34)], footer: "" };
     }
     case "map": {
-      const label = v(f, "label") || (isMapsLink(v(f, "place")) || /^-?\d/.test(v(f, "place")) ? "" : v(f, "place"));
+      const place = v(f, "place");
+      const label = v(f, "label") || splitMapsShare(place)?.name || (isMapsLink(place) || /^-?\d/.test(place) ? "" : place);
       return { lines: label ? [label.slice(0, 34)] : [], footer: "Scan for directions in Google Maps" };
     }
     case "wa":
@@ -84,4 +85,18 @@ export function fileBase(mode: Mode, f: Fields): string {
   const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30);
   const part = { upi: v(f, "id").split("@")[0] ?? "", link: "", map: v(f, "label"), wa: "", call: "", wifi: v(f, "ssid") }[mode];
   return [`${mode === "wa" ? "whatsapp" : mode}-qr`, slug(part)].filter(Boolean).join("-");
+}
+
+/**
+ * What another app shared to QR Studio (Android share sheet → /?title=&text=&url=), as a mode and its fields.
+ * A Google Maps share becomes Directions; any other web link becomes Website.
+ */
+export function fromShare(title: string, text: string, url: string): { mode: Mode; f: Fields } | null {
+  const all = [title, text, url].filter(Boolean).join("\n").trim();
+  if (!all) return null;
+  const maps = splitMapsShare(all);
+  if (maps) return { mode: "map", f: { place: maps.url, label: (title.trim() || maps.name).slice(0, 34) } };
+  const link = /https?:\/\/\S+/i.exec(all);
+  if (link) return { mode: "link", f: { url: link[0] } };
+  return null;
 }

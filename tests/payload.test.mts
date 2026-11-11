@@ -32,3 +32,16 @@ assert.equal((P.checkWifi("Guest", "", "nopass") as { value: string }).value, "W
 assert.equal(P.checkWifi("Guest", "short", "WPA").ok, false, "WPA needs 8+ characters");
 assert.equal(P.checkWifi("", "password1", "WPA").ok, false, "needs a name");
 console.log("MORE TYPES OK");
+
+// Google Maps "Share" text and the Android share sheet
+{
+  const M = (await import("../lib/modes.ts")) as typeof import("../lib/modes");
+  const shareText = "Asha Tea Stall, MG Road, Bhatkal, Karnataka 581320 https://maps.app.goo.gl/AbC123xyz";
+  assert.equal((P.checkMap(shareText) as { value: string }).value, "https://maps.app.goo.gl/AbC123xyz", "link pulled out of share text");
+  assert.equal(M.cardLines("map", { place: shareText }, "https://maps.app.goo.gl/AbC123xyz").lines[0], "Asha Tea Stall, MG Road, Bhatkal, Karnataka 581320".slice(0, 34));
+  assert.deepEqual(M.fromShare("Asha Tea Stall", "", "https://maps.app.goo.gl/AbC123xyz"), { mode: "map", f: { place: "https://maps.app.goo.gl/AbC123xyz", label: "Asha Tea Stall" } });
+  assert.deepEqual(M.fromShare("", "Asha Tea Stall\nMG Road\nhttps://maps.app.goo.gl/AbC123xyz", ""), { mode: "map", f: { place: "https://maps.app.goo.gl/AbC123xyz", label: "Asha Tea Stall" } });
+  assert.deepEqual(M.fromShare("", "look https://example.com/x", ""), { mode: "link", f: { url: "https://example.com/x" } });
+  assert.equal(M.fromShare("", "", ""), null);
+  console.log("MAPS SHARE OK");
+}

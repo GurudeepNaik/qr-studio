@@ -90,11 +90,25 @@ const MAPS_LINK = /^(https?:\/\/)?((www\.)?google\.[a-z.]+\/maps|maps\.google\.[
 const COORDS = /^(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)$/;
 
 /** A Google Maps link is kept as is; an address, place name or "lat, lng" becomes a directions link. */
+const MAPS_LINK_ANYWHERE = /https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|(?:www\.)?google\.[a-z.]+\/maps|maps\.google\.[a-z.]+)\S*/i;
+
+/**
+ * Google Maps' Share gives "Place name, address https://maps.app.goo.gl/…": pull the link out and keep the
+ * words before it as the name for the card.
+ */
+export function splitMapsShare(raw: string): { url: string; name: string } | null {
+  const m = MAPS_LINK_ANYWHERE.exec(raw);
+  if (!m) return null;
+  const name = raw.slice(0, m.index).split(/\n/)[0]!.replace(/[\s,·-]+$/, "").trim();
+  return { url: m[0], name };
+}
+
 export function checkMap(raw: string): Check<string> {
   const text = raw.trim().replace(/\s+/g, " ");
   if (!text) return { ok: false, error: "Type your shop's address or name, or paste a Google Maps link.", field: "place" };
-  if (MAPS_LINK.test(text)) {
-    const link = checkLink(text);
+  const shared = splitMapsShare(raw.trim());
+  if (shared || MAPS_LINK.test(text)) {
+    const link = checkLink(shared?.url ?? text);
     return link.ok ? link : { ...link, field: "place" };
   }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) return { ok: false, error: "That isn't a Google Maps link. Paste one from Share in Google Maps, or type the address.", field: "place" };
@@ -104,7 +118,7 @@ export function checkMap(raw: string): Check<string> {
   const dest = c ? `${c[1]},${c[2]}` : text;
   return { ok: true, value: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}` };
 }
-export const isMapsLink = (raw: string) => MAPS_LINK.test(raw.trim());
+export const isMapsLink = (raw: string) => MAPS_LINK.test(raw.trim()) || !!splitMapsShare(raw);
 
 // ---------- Wi-Fi ----------
 

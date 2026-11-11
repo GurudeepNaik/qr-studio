@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { build, cardLines, DEFAULT_TITLE, FIELDS, fileBase, MODES, summary, type Fields, type Mode } from "@/lib/modes";
+import { build, cardLines, DEFAULT_TITLE, FIELDS, fileBase, fromShare, MODES, summary, type Fields, type Mode } from "@/lib/modes";
 import { rupees } from "@/lib/payload";
 import { colourCheck, renderSvg, svgToPng, type CardText, type DotStyle } from "@/lib/qr";
 
@@ -93,6 +93,14 @@ export function Studio() {
   useEffect(() => {
     setRecent(readRecent());
     setMounted(true);
+    // Opened from another app's Share button (Android, once QR Studio is installed): fill the form from it.
+    const q = new URLSearchParams(location.search);
+    const shared = fromShare(q.get("title") ?? "", q.get("text") ?? "", q.get("url") ?? "");
+    if (shared) {
+      setMode(shared.mode);
+      setF(prev => ({ ...prev, ...shared.f }));
+      history.replaceState(null, "", "/");
+    }
     try {
       const probe = new File([new Blob(["x"], { type: "image/png" })], "x.png", { type: "image/png" });
       setCanShare(typeof navigator.canShare === "function" && navigator.canShare({ files: [probe] }));
@@ -254,7 +262,7 @@ export function Studio() {
 
             {mode === "map" && (
               <>
-                <Field label="Where to" hint="An address, a place name, or a link from Share in Google Maps" error={errorFor("place")} k="place">
+                <Field label="Where to" hint="An address or place name. Or in Google Maps tap Share, then Copy, and paste it here" error={errorFor("place")} k="place">
                   {input("place", { placeholder: "Asha Tea Stall, MG Road, Bhatkal", autoCapitalize: "words" })}
                 </Field>
                 <button onClick={locate} disabled={locating} className="press -mt-1 flex min-h-11 items-center justify-center gap-2 rounded-xl border border-line text-sm font-medium disabled:opacity-50">
